@@ -27,6 +27,7 @@
   -->
   <modules>
     <module>v1-legacy-monolith</module>
+    <module>api-gateway</module>
   </modules>
 
 </project>
