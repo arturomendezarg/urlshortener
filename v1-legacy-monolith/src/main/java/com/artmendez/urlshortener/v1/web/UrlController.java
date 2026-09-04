@@ -40,7 +40,7 @@ public class UrlController {
     }
 
     @GetMapping("/{shortCode}")
-    public ResponseEntity<Void> redirect(@PathVariable String shortCode) {
+    public ResponseEntity<Void> redirect(@PathVariable("shortCode") String shortCode) {
         UrlRecord record = service.resolve(shortCode);
         return ResponseEntity.status(HttpStatus.MOVED_PERMANENTLY)
                 .header(HttpHeaders.LOCATION, record.getLongUrl())
