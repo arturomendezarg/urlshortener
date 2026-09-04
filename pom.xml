@@ -77,7 +77,7 @@
           <threshold>Medium</threshold>
           <failOnError>true</failOnError>
           <!--
-            Narrow, documented exceptions only -- see spotbugs-exclude.xml itself for exactly
+            Narrow, documented exceptions only — see spotbugs-exclude.xml itself for exactly
             which classes/patterns are excluded and why (Task #9, v2-shortener-service).
           -->
           <excludeFilterFile>${maven.multiModuleProjectDirectory}/spotbugs-exclude.xml</excludeFilterFile>
