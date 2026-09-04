@@ -4,20 +4,20 @@ import java.security.SecureRandom;
 import java.util.function.Predicate;
 
 /**
- * Generador de codigos cortos Base62 para el sistema V2, con manejo de colisiones mas robusto
- * que el generador simple del Monolito V1 (ver
- * {@code com.artmendez.urlshortener.v1.service.UrlShortenerService}, deliberadamente naive).
+ * Base62 short code generator for the V2 system, with more robust collision handling
+ * than the simple generator in Monolith V1 (see
+ * {@code com.artmendez.urlshortener.v1.service.UrlShortenerService}, deliberately naive).
  *
- * <p>Estrategia (ver ARCHITECTURE.md, seccion 6, Escenario A, punto 3): para cada longitud,
- * de {@link #INITIAL_LENGTH} a {@link #MAX_LENGTH}, se intentan hasta
- * {@link #MAX_ATTEMPTS_PER_LENGTH} codigos aleatorios. Si todos colisionan, se pasa a la
- * siguiente longitud (fallback a mayor longitud) en vez de reintentar indefinidamente a la
- * misma longitud, lo cual acerca la probabilidad de colision a cero a medida que crece el
- * espacio de busqueda.
+ * <p>Strategy (see ARCHITECTURE.md, section 6, Scenario A, point 3): for each length,
+ * from {@link #INITIAL_LENGTH} to {@link #MAX_LENGTH}, up to
+ * {@link #MAX_ATTEMPTS_PER_LENGTH} random codes are attempted. If all of them collide, it
+ * moves on to the next length (fallback to a longer length) instead of retrying indefinitely at
+ * the same length, which drives the collision probability toward zero as the
+ * search space grows.
  *
- * <p>No depende de un repositorio concreto: recibe la verificacion de colisiones como un
- * {@link Predicate}, para poder probarse sin base de datos ni Redis (que se integran en el
- * Dia 2, cuando este generador se conecte a la persistencia real del Shortener Service V2).
+ * <p>It does not depend on a concrete repository: it receives the collision check as a
+ * {@link Predicate}, so it can be tested without a database or Redis (which are integrated on
+ * Day 2, when this generator is wired up to the real persistence of the Shortener Service V2).
  */
 public class Base62CodeGenerator {
 
@@ -30,12 +30,12 @@ public class Base62CodeGenerator {
     private final SecureRandom random = new SecureRandom();
 
     /**
-     * Genera un codigo Base62 que no existe segun {@code codeExists}.
+     * Generates a Base62 code that does not exist according to {@code codeExists}.
      *
-     * @param codeExists predicado que devuelve {@code true} si el codigo candidato ya está en
-     *                   uso (p. ej. {@code repository::existsByShortCode})
-     * @return un codigo libre, de entre {@link #INITIAL_LENGTH} y {@link #MAX_LENGTH} caracteres
-     * @throws CodeGenerationExhaustedException si se agotan los intentos en todas las longitudes
+     * @param codeExists predicate that returns {@code true} if the candidate code is already in
+     *                   use (e.g. {@code repository::existsByShortCode})
+     * @return a free code, between {@link #INITIAL_LENGTH} and {@link #MAX_LENGTH} characters
+     * @throws CodeGenerationExhaustedException if attempts are exhausted at every length
      */
     public String generate(Predicate<String> codeExists) {
         for (int length = INITIAL_LENGTH; length <= MAX_LENGTH; length++) {

@@ -7,11 +7,11 @@
 
     <changeSet id="v1.2-add-expires-at" author="art-claude-dev">
         <comment>
-            Escenario Brownfield (ver ARCHITECTURE.md seccion 6, Escenario B): agrega expires_at
-            a la tabla urls existente. Deliberadamente NULLABLE (no NOT NULL): las filas actuales
-            no tienen valor y NULL se interpreta como "nunca expira", preservando exactamente el
-            comportamiento previo para todo lo que ya existe. Ningun downtime, ninguna migracion
-            de datos necesaria.
+            Brownfield scenario (see ARCHITECTURE.md section 6, Scenario B): adds expires_at
+            to the existing urls table. Deliberately NULLABLE (not NOT NULL): current rows
+            have no value and NULL is interpreted as "never expires", preserving exactly the
+            previous behavior for everything that already exists. No downtime, no data
+            migration needed.
         </comment>
         <addColumn tableName="urls">
             <column name="expires_at" type="TIMESTAMP WITH TIME ZONE">

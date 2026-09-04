@@ -21,11 +21,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Verifica el criterio de aceptacion central de la Tarea #6: si RabbitMQ esta caido /
- * inalcanzable, la redireccion (el camino critico) debe seguir funcionando exactamente igual.
- * Deliberadamente NO levanta un contenedor de RabbitMQ — apunta a un puerto local donde no hay
- * nada escuchando, para forzar el fallo de conexion que {@link
- * com.artmendez.urlshortener.v1.messaging.ClickEventPublisher} debe absorber.
+ * Verifies the core acceptance criterion of Task #6: if RabbitMQ is down / unreachable, the
+ * redirect (the critical path) must keep working exactly the same. Deliberately does NOT spin
+ * up a RabbitMQ container — it targets a local port with nothing listening, to force the
+ * connection failure that {@link
+ * com.artmendez.urlshortener.v1.messaging.ClickEventPublisher} must absorb.
  */
 @Testcontainers
 @SpringBootTest(classes = V1LegacyMonolithApplication.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK)

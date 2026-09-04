@@ -4,11 +4,11 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * Punto de entrada del Monolito V1 "legacy".
+ * Entry point of the "legacy" Monolith V1.
  *
- * <p>Este servicio simula un sistema pre-existente simple: crea URLs cortas y redirige.
- * Es intencionalmente basico (sin auth, sin cache, generador de codigo naive) para servir
- * como base del escenario Brownfield del Dia 2 (ver ARCHITECTURE.md, seccion 6, Escenario B).
+ * <p>This service simulates a simple pre-existing system: it creates short URLs and redirects.
+ * It is intentionally basic (no auth, no cache, naive code generator) to serve as the
+ * foundation for the Day 2 Brownfield scenario (see ARCHITECTURE.md, section 6, Scenario B).
  */
 @SpringBootApplication
 public class V1LegacyMonolithApplication {

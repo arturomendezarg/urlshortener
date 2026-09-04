@@ -14,9 +14,9 @@
   <packaging>jar</packaging>
   <name>API Gateway</name>
   <description>
-    Punto de entrada unico (patron Strangler Fig): enruta /api/v1/** al Monolito V1 y expone
-    el redirect publico GET /{shortCode}. /api/v2/** responde 501 como stub documentado hasta
-    que exista el servicio V2 (ver ARCHITECTURE.md, seccion 3.1 y seccion 7 - corte de emergencia).
+    Single entry point (Strangler Fig pattern): routes /api/v1/** to Monolith V1 and exposes
+    the public redirect GET /{shortCode}. /api/v2/** responds with a documented 501 stub until
+    the V2 service exists (see ARCHITECTURE.md, section 3.1 and section 7 - emergency cutover).
   </description>
 
   <properties>

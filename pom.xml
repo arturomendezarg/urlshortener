@@ -9,7 +9,7 @@
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>URL Shortener - Parent</name>
-  <description>Prototipo de URL shortener - proyecto de ejercicio de AI-assisted engineering. Ver ARCHITECTURE.md.</description>
+  <description>URL shortener prototype - AI-assisted engineering exercise project. See ARCHITECTURE.md.</description>
 
   <properties>
     <java.version>17</java.version>
@@ -21,8 +21,8 @@
   </properties>
 
   <!--
-    Los módulos se agregan uno por uno a medida que cada tarea del plan (ARCHITECTURE.md §7) se
-    implementa en su propio PR, para mantener la trazabilidad tarea-por-tarea.
+    Modules are added one by one as each task in the plan (ARCHITECTURE.md §7) is
+    implemented in its own PR, to keep task-by-task traceability.
   -->
   <modules>
     <module>v1-legacy-monolith</module>
@@ -32,17 +32,17 @@
   </modules>
 
   <!--
-    Quality gates transversales (ver ARCHITECTURE.md sección 11 y AI_USAGE_LOG.md): declarados
-    aquí como <build><plugins> (no <pluginManagement>) para que cada módulo hijo los ejecute
-    automáticamente en su fase verify, sin tener que repetir la configuración.
+    Cross-cutting quality gates (see ARCHITECTURE.md section 11 and AI_USAGE_LOG.md): declared
+    here as <build><plugins> (not <pluginManagement>) so that every child module runs them
+    automatically in its verify phase, without having to repeat the configuration.
 
-    - checkstyle: análisis estático de estilo/errores comunes (ruleset propio en checkstyle.xml,
-      deliberadamente acotado para arrancar como gate real sin generar una ola de violaciones
-      sobre código ya escrito).
-    - spotbugs: análisis estático de patrones de bugs sobre el bytecode compilado.
+    - checkstyle: static analysis of style/common errors (own ruleset in checkstyle.xml,
+      deliberately scoped so it can start as a real gate without generating a wave of violations
+      against already-written code).
+    - spotbugs: static analysis of bug patterns on the compiled bytecode.
 
-    El escaneo de dependencias (seguridad) se resolvió con GitHub Dependabot en vez de un plugin
-    de Maven — ver ARCHITECTURE.md sección 11 para la justificación de ese cambio de enfoque.
+    Dependency scanning (security) was solved with GitHub Dependabot instead of a Maven
+    plugin — see ARCHITECTURE.md section 11 for the rationale behind that change of approach.
   -->
   <build>
     <plugins>

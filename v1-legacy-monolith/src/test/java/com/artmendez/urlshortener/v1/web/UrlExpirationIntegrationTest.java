@@ -24,9 +24,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Pruebas end-to-end del comportamiento NUEVO agregado por la Tarea #5 (Brownfield):
- * expiracion de URLs via {@code expires_at}. Complementa (sin reemplazar) a
- * {@link UrlBrownfieldCharacterizationTest}, que congela el comportamiento previo.
+ * End-to-end tests of the NEW behavior added by Task #5 (Brownfield):
+ * URL expiration via {@code expires_at}. Complements (without replacing)
+ * {@link UrlBrownfieldCharacterizationTest}, which freezes the previous behavior.
  */
 @Testcontainers
 @SpringBootTest(classes = V1LegacyMonolithApplication.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK)

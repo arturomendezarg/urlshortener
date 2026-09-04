@@ -14,10 +14,10 @@
   <packaging>jar</packaging>
   <name>V1 Legacy Monolith</name>
   <description>
-    Monolito V1 "legacy" minimo: crear URL corta y redirigir. Simula el sistema pre-existente
-    que en Dia 2 sera intervenido con el escenario Brownfield (agregar expires_at sin romper
-    produccion). Deliberadamente simple: generador de codigo con SecureRandom + reintento,
-    sin el manejo sofisticado de colisiones Base62 reservado para V2 (ver ARCHITECTURE.md, seccion 6).
+    Minimal "legacy" Monolith V1: create a short URL and redirect. Simulates the pre-existing
+    system that will be intervened on Day 2 with the Brownfield scenario (adding expires_at
+    without breaking production). Deliberately simple: code generator with SecureRandom + retry,
+    without the sophisticated Base62 collision handling reserved for V2 (see ARCHITECTURE.md, section 6).
   </description>
 
   <properties>

@@ -7,9 +7,9 @@
 
     <changeSet id="v1.0-init-urls-table" author="art-claude-dev">
         <comment>
-            Tabla inicial de URLs para el Monolito V1. Deliberadamente NO incluye expires_at:
-            esa columna se agrega en un changelog posterior (Dia 2, escenario Brownfield) sin
-            downtime. Ver ARCHITECTURE.md, seccion 6.
+            Initial URLs table for Monolith V1. Deliberately does NOT include expires_at:
+            that column is added in a later changelog (Day 2, Brownfield scenario) with no
+            downtime. See ARCHITECTURE.md, section 6.
         </comment>
         <createTable tableName="urls">
             <column name="id" type="BIGINT" autoIncrement="true">

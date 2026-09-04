@@ -57,13 +57,13 @@ jobs:
           java-version: '17'
           cache: 'maven'
 
-      # Checkstyle y OWASP Dependency-Check quedan integrados como plugins de Maven
-      # ligados a la fase `verify` una vez exista pom.xml (Día 1) — no requieren un
-      # step de CI aparte, corren dentro de este mismo `mvn verify`.
+      # Checkstyle and OWASP Dependency-Check are integrated as Maven plugins
+      # bound to the `verify` phase once pom.xml exists (Day 1) — they don't require a
+      # separate CI step, they run within this same `mvn verify`.
       - name: Build and run tests (mvn verify)
         if: steps.check_pom.outputs.exists == 'true'
         run: mvn -B clean verify
 
       - name: Skip build (no Maven project yet)
         if: steps.check_pom.outputs.exists == 'false'
-        run: echo "No se encontró pom.xml todavía — se omite build/test. Esperado en la fase actual (solo documentación); este job se activa solo al llegar el scaffold del Día 1."
+        run: echo "pom.xml not found yet — skipping build/test. Expected at the current phase (documentation only); this job only activates once the Day 1 scaffold lands."

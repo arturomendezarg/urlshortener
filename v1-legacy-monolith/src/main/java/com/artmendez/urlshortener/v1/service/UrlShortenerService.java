@@ -8,17 +8,17 @@ import java.security.SecureRandom;
 import java.time.OffsetDateTime;
 
 /**
- * Logica de negocio del Monolito V1.
+ * Business logic of Monolith V1.
  *
- * <p>El generador de codigos es deliberadamente simple (alfabeto alfanumerico + SecureRandom +
- * reintento ante colision), a diferencia del generador Base62 con manejo formal de colisiones
- * que se implementara para V2 (ver ARCHITECTURE.md, seccion 6, Escenario A / Tarea #4). Esta
- * simplicidad es intencional: V1 representa el sistema "legacy" tal como fue construido antes
- * del rediseno, no la solucion ideal.
+ * <p>The code generator is deliberately simple (alphanumeric alphabet + SecureRandom +
+ * retry on collision), unlike the Base62 generator with formal collision handling
+ * that will be implemented for V2 (see ARCHITECTURE.md, section 6, Scenario A / Task #4). This
+ * simplicity is intentional: V1 represents the "legacy" system as it was built before
+ * the redesign, not the ideal solution.
  *
- * <p>Escenario Brownfield (Tarea #5): {@code createShortUrl(String)} se preserva sin cambios
- * (delega con {@code expiresAt = null}, es decir "nunca expira") y {@code resolve} ahora
- * verifica expiracion antes de devolver el registro.
+ * <p>Brownfield scenario (Task #5): {@code createShortUrl(String)} is preserved unchanged
+ * (it delegates with {@code expiresAt = null}, i.e. "never expires") and {@code resolve} now
+ * checks for expiration before returning the record.
  */
 @Service
 public class UrlShortenerService {
@@ -61,7 +61,7 @@ public class UrlShortenerService {
             }
         }
         throw new IllegalStateException(
-                "No se pudo generar un short code unico tras " + MAX_ATTEMPTS + " intentos");
+                "Could not generate a unique short code after " + MAX_ATTEMPTS + " attempts");
     }
 
     private String randomCode() {

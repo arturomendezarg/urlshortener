@@ -3,17 +3,17 @@ package com.artmendez.urlshortener.v1.messaging;
 import java.time.OffsetDateTime;
 
 /**
- * Evento de clic publicado a la cola RabbitMQ {@code click-events} (ver ARCHITECTURE.md,
- * seccion 4, tabla {@code click_events}).
+ * Click event published to the RabbitMQ queue {@code click-events} (see ARCHITECTURE.md,
+ * section 4, table {@code click_events}).
  *
- * <p>Nota deliberada: {@code clientIp} viaja SIN anonimizar. La anonimizacion del ultimo octeto
- * ocurre en el Analytics Worker (Tarea #7), justo antes de insertar en {@code click_events} —
- * este evento es el dato crudo de entrada a ese pipeline, no el registro final persistido.
+ * <p>Deliberate note: {@code clientIp} travels UNANONYMIZED. Anonymization of the last octet
+ * happens in the Analytics Worker (Task #7), right before inserting into {@code click_events} —
+ * this event is the raw input data for that pipeline, not the final persisted record.
  *
- * <p>{@code deviceType} no se calcula en V1 (generador de codigo simple, sin la logica de
- * redireccion condicional por dispositivo reservada para el Escenario C / V2); se deja fuera
- * de este evento en vez de enviarlo como {@code null} adivinado, y el Analytics Worker decide
- * como completarlo para eventos de origen V1.
+ * <p>{@code deviceType} is not computed in V1 (simple code generator, without the per-device
+ * conditional redirect logic reserved for Scenario C / V2); it is left out of this event
+ * instead of being sent as a guessed {@code null}, and the Analytics Worker decides how to
+ * fill it in for events originating from V1.
  */
 public record ClickEvent(
         String shortCode,

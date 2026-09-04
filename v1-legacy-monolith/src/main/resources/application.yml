@@ -19,9 +19,9 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
-    # Falla rapido si el broker no esta disponible, en vez de bloquear el hilo de redireccion
-    # esperando el timeout por defecto del cliente AMQP (ver ClickEventPublisher: fire-and-forget,
-    # nunca debe impedir que la redireccion responda).
+    # Fail fast if the broker is unavailable, instead of blocking the redirect thread
+    # waiting for the AMQP client's default timeout (see ClickEventPublisher: fire-and-forget,
+    # must never prevent the redirect from responding).
     connection-timeout: 2000
 
 app:

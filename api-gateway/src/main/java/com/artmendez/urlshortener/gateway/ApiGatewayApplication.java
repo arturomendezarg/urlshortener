@@ -4,9 +4,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * Punto de entrada unico del sistema (patron Strangler Fig, ver ARCHITECTURE.md seccion 3.1):
- * enruta el plano de control (/api/v1/**, /api/v2/**) y el plano de datos publico
- * (GET /{shortCode}) hacia el backend correspondiente.
+ * Single entry point of the system (Strangler Fig pattern, see ARCHITECTURE.md section 3.1):
+ * routes the control plane (/api/v1/**, /api/v2/**) and the public data plane
+ * (GET /{shortCode}) to the corresponding backend.
  */
 @SpringBootApplication
 public class ApiGatewayApplication {

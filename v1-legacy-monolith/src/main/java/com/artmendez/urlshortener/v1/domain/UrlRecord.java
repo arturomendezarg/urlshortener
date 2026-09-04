@@ -11,13 +11,13 @@ import jakarta.persistence.UniqueConstraint;
 import java.time.OffsetDateTime;
 
 /**
- * Entidad JPA que representa una URL corta en el Monolito V1.
+ * JPA entity representing a short URL in Monolith V1.
  *
- * <p>Escenario Brownfield (ver ARCHITECTURE.md, seccion 6, Escenario B): se agrego el campo
- * {@code expiresAt} mediante un changelog de Liquibase adicional (columna nullable, sin valor
- * por defecto), preservando el esquema y las filas existentes. {@code expiresAt == null}
- * significa "la URL nunca expira" — es el comportamiento exacto de todas las filas creadas
- * antes de este cambio, por lo que no requiere backfill ni downtime.
+ * <p>Brownfield scenario (see ARCHITECTURE.md, section 6, Scenario B): the {@code expiresAt}
+ * field was added via an additional Liquibase changelog (nullable column, no default value),
+ * preserving the existing schema and rows. {@code expiresAt == null} means "the URL never
+ * expires" — this is exactly the behavior of every row created before this change, so it
+ * requires no backfill and no downtime.
  */
 @Entity
 @Table(name = "urls", uniqueConstraints = @UniqueConstraint(name = "uk_urls_short_code", columnNames = "short_code"))
@@ -40,12 +40,12 @@ public class UrlRecord {
     private OffsetDateTime expiresAt;
 
     protected UrlRecord() {
-        // Requerido por JPA.
+        // Required by JPA.
     }
 
     /**
-     * Constructor original, preservado sin cambios para no romper llamadores existentes
-     * (incluidas las pruebas de caracterizacion). Equivale a crear una URL sin expiracion.
+     * Original constructor, preserved unchanged so as not to break existing callers
+     * (including the characterization tests). Equivalent to creating a URL with no expiration.
      */
     public UrlRecord(String shortCode, String longUrl, OffsetDateTime createdAt) {
         this(shortCode, longUrl, createdAt, null);
@@ -79,8 +79,8 @@ public class UrlRecord {
     }
 
     /**
-     * Una URL sin {@code expiresAt} (null) nunca expira — asi se comportaban todas las filas
-     * legacy antes de este cambio, y ese comportamiento se preserva explicitamente aqui.
+     * A URL with no {@code expiresAt} (null) never expires — that is how every legacy row
+     * behaved before this change, and that behavior is explicitly preserved here.
      */
     public boolean isExpired(OffsetDateTime now) {
         return expiresAt != null && now.isAfter(expiresAt);

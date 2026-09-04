@@ -21,14 +21,14 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.OffsetDateTime;
 
 /**
- * API publica del Monolito V1: crear URLs cortas y redirigir.
+ * Public API of Monolith V1: create short URLs and redirect.
  *
- * <p>Sin autenticacion (fuera de alcance para V1; OAuth2/OIDC se agrega en el rediseno V2,
- * ver ARCHITECTURE.md, seccion 5).
+ * <p>No authentication (out of scope for V1; OAuth2/OIDC is added in the V2 redesign,
+ * see ARCHITECTURE.md, section 5).
  *
- * <p>Escenario Brownfield (Tarea #5): {@code expiresAt} es opcional en el request (omitirlo o
- * enviar {@code null} preserva el comportamiento original: la URL nunca expira). Al resolver
- * un short code expirado se devuelve HTTP 410 Gone.
+ * <p>Brownfield scenario (Task #5): {@code expiresAt} is optional in the request (omitting it
+ * or sending {@code null} preserves the original behavior: the URL never expires). Resolving
+ * an expired short code returns HTTP 410 Gone.
  */
 @RestController
 public class UrlController {
@@ -53,8 +53,8 @@ public class UrlController {
     public ResponseEntity<Void> redirect(
             @PathVariable("shortCode") String shortCode, HttpServletRequest request) {
         UrlRecord record = service.resolve(shortCode);
-        // Solo se publica el evento de clic para una redireccion exitosa: si resolve() lanza
-        // (404 o 410), esta linea nunca se alcanza y no se cuenta un clic invalido.
+        // The click event is only published for a successful redirect: if resolve() throws
+        // (404 or 410), this line is never reached and an invalid click is not counted.
         clickEventPublisher.publish(new ClickEvent(
                 record.getShortCode(),
                 "v1",
@@ -80,9 +80,9 @@ public class UrlController {
     public record CreateUrlRequest(@NotBlank String longUrl, OffsetDateTime expiresAt) {
 
         /**
-         * Constructor original, preservado sin cambios para no romper llamadores existentes
-         * (incluidas las pruebas de caracterizacion, que instancian este record con un solo
-         * argumento). Equivale a un request sin fecha de expiracion.
+         * Original constructor, preserved unchanged so as not to break existing callers
+         * (including the characterization tests, which instantiate this record with a single
+         * argument). Equivalent to a request with no expiration date.
          */
         public CreateUrlRequest(String longUrl) {
             this(longUrl, null);

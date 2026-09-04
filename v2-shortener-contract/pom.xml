@@ -14,12 +14,12 @@
   <packaging>jar</packaging>
   <name>V2 Shortener - Contrato + Generador Base62</name>
   <description>
-    Arranque del escenario Greenfield (Dia 1, Tarea #4, ver ARCHITECTURE.md seccion 6,
-    Escenario A). Contiene el contrato OpenAPI de la API V2 (documentacion pura, sin
-    implementacion todavia) y el generador de codigos Base62 con manejo de colisiones
-    (reintento + fallback a mayor longitud), como pieza de dominio independiente y testeable
-    antes de que exista el resto del Shortener Service V2 (persistencia, Redis, OAuth2/OIDC),
-    que se construye en el Dia 2.
+    Kickoff of the Greenfield scenario (Day 1, Task #4, see ARCHITECTURE.md section 6,
+    Scenario A). Contains the OpenAPI contract for the V2 API (pure documentation, no
+    implementation yet) and the Base62 code generator with collision handling
+    (retry + fallback to a longer length), as an independent, testable domain piece
+    before the rest of the Shortener Service V2 exists (persistence, Redis, OAuth2/OIDC),
+    which is built on Day 2.
   </description>
 
   <dependencyManagement>
