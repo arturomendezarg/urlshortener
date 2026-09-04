@@ -1,0 +1,395 @@
+openapi: 3.0.3
+info:
+  title: URL Shortener - API V2
+  version: "2.0.0"
+  description: >
+    Contrato REST del sistema V2 (moderno) de acortamiento de URLs. Definido primero, antes
+    de la implementacion (Dia 1, Tarea #4 del plan), para poder validar el diseño de la API
+    con el equipo antes de escribir código de negocio y persistencia.
+
+    Ver ARCHITECTURE.md para contexto completo:
+      - Seccion 3.1 (Componentes) y seccion 6, Escenario A: por que existe este contrato y
+        que microservicios lo implementan (Shortener Service, Bulk Processor, Analytics
+        Worker) en los proximos dias del plan.
+      - Seccion 4.1: resumen de estos mismos endpoints en prosa.
+      - Seccion 4.2: modelo de datos subyacente (`short_links`, `app_user`, `click_events`,
+        `bulk_jobs`, `bulk_job_items`).
+      - Seccion 5: seguridad (OAuth2/OIDC via Keycloak, Resource Server).
+      - Seccion 6, Escenario C: origen de `redirectRules` (redireccion condicional simple por
+        tipo de dispositivo) y `expiresAt` (410 Gone si venció).
+
+    Fuera de alcance de este contrato: `GET /{shortCode}` (la redireccion publica real) no
+    vive bajo `/api/v2` — el dominio publico es unico y estable (patron Strangler Fig,
+    seccion 3.1) y lo resuelve el API Gateway consultando primero el indice V2 y luego el
+    Monolito V1. Se documenta en el propio Gateway, no aqui.
+servers:
+  - url: /api/v2
+    description: A traves del API Gateway (unico punto de entrada, patron Strangler Fig)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: urls
+    description: Gestion de URLs cortas (creacion, listado, revocacion, analitica)
+  - name: bulk
+    description: Creacion masiva asincrona (via RabbitMQ, cola bulk-url-jobs)
+
+paths:
+  /urls:
+    post:
+      tags: [urls]
+      operationId: createShortUrl
+      summary: Crear una URL corta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUrlRequest"
+      responses:
+        "201":
+          description: URL corta creada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateUrlResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: El customAlias solicitado ya está en uso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    get:
+      tags: [urls]
+      operationId: listUrls
+      summary: Listar las URLs del usuario autenticado
+      responses:
+        "200":
+          description: Listado de URLs del usuario
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UrlSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /urls/bulk:
+    post:
+      tags: [bulk]
+      operationId: createBulkUrls
+      summary: Encolar creación masiva de URLs (procesamiento asíncrono)
+      description: >
+        Encola el job en RabbitMQ (cola bulk-url-jobs) y responde de inmediato; el Bulk
+        Processor lo procesa fuera de banda. Consultar el progreso con
+        GET /urls/bulk/{jobId}.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkCreateRequest"
+      responses:
+        "202":
+          description: Job de creación masiva aceptado y encolado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkJobAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /urls/bulk/{jobId}:
+    get:
+      tags: [bulk]
+      operationId: getBulkJobStatus
+      summary: Consultar el estado de un job de creación masiva
+      parameters:
+        - $ref: "#/components/parameters/JobIdPathParam"
+      responses:
+        "200":
+          description: Estado actual del job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkJobStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /urls/{shortCode}:
+    delete:
+      tags: [urls]
+      operationId: deleteUrl
+      summary: Revocar (desactivar) una URL corta propia
+      parameters:
+        - $ref: "#/components/parameters/ShortCodePathParam"
+      responses:
+        "204":
+          description: URL revocada
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /urls/{shortCode}/analytics:
+    get:
+      tags: [urls]
+      operationId: getUrlAnalytics
+      summary: Métricas agregadas de clics para una URL propia
+      parameters:
+        - $ref: "#/components/parameters/ShortCodePathParam"
+      responses:
+        "200":
+          description: Métricas agregadas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UrlAnalytics"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Token OIDC emitido por Keycloak. Los servicios V2 actúan como OAuth2 Resource
+        Server (ver ARCHITECTURE.md, sección 5) — no validan credenciales por su cuenta.
+
+  parameters:
+    ShortCodePathParam:
+      name: shortCode
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9A-Za-z]{6,20}$'
+    JobIdPathParam:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Solicitud inválida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Token ausente o inválido
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: El recurso existe pero no pertenece al usuario autenticado
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Recurso no encontrado
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    RedirectRule:
+      type: object
+      description: >
+        Redirección condicional simple por tipo de dispositivo (ver ARCHITECTURE.md,
+        sección 6, Escenario C — "inteligente" se desambiguó como esto, deliberadamente
+        acotado en vez de un motor de reglas genérico).
+      required: [deviceType, targetUrl]
+      properties:
+        deviceType:
+          type: string
+          enum: [MOBILE, DESKTOP, DEFAULT]
+        targetUrl:
+          type: string
+          format: uri
+
+    CreateUrlRequest:
+      type: object
+      required: [longUrl]
+      properties:
+        longUrl:
+          type: string
+          format: uri
+        customAlias:
+          type: string
+          nullable: true
+          pattern: '^[0-9A-Za-z_-]{3,20}$'
+          description: Alias elegido por el usuario; si se omite, se genera con Base62.
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        redirectRules:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/RedirectRule"
+
+    CreateUrlResponse:
+      type: object
+      properties:
+        shortCode:
+          type: string
+        shortUrl:
+          type: string
+          format: uri
+        ownerId:
+          type: string
+
+    UrlSummary:
+      type: object
+      properties:
+        shortCode:
+          type: string
+        longUrl:
+          type: string
+          format: uri
+        shortUrl:
+          type: string
+          format: uri
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        active:
+          type: boolean
+
+    BulkCreateRequestItem:
+      type: object
+      required: [longUrl]
+      properties:
+        longUrl:
+          type: string
+          format: uri
+        customAlias:
+          type: string
+          nullable: true
+
+    BulkCreateRequest:
+      type: object
+      required: [urls]
+      properties:
+        urls:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/BulkCreateRequestItem"
+
+    BulkJobAccepted:
+      type: object
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING]
+        totalItems:
+          type: integer
+
+    BulkJobItem:
+      type: object
+      properties:
+        lineIndex:
+          type: integer
+        longUrl:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [PENDING, DONE, FAILED]
+        shortCode:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+
+    BulkJobStatus:
+      type: object
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING, PROCESSING, COMPLETED, COMPLETED_WITH_ERRORS, FAILED]
+        totalItems:
+          type: integer
+        processedItems:
+          type: integer
+        failedItems:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkJobItem"
+
+    UrlAnalytics:
+      type: object
+      properties:
+        shortCode:
+          type: string
+        totalClicks:
+          type: integer
+          format: int64
+        clicksByDay:
+          type: object
+          description: Mapa fecha (YYYY-MM-DD) -> cantidad de clics ese día
+          additionalProperties:
+            type: integer
+        topReferrers:
+          type: array
+          items:
+            type: string
+        topDeviceTypes:
+          type: array
+          items:
+            type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
