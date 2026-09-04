@@ -34,11 +34,13 @@ public class ShortLinkCache {
     private static final Logger log = LoggerFactory.getLogger(ShortLinkCache.class);
     private static final String KEY_PREFIX = "shortlink:v2:";
 
-    // Typed against the RedisOperations interface, not the concrete StringRedisTemplate class,
-    // for the same reason RabbitTemplate was switched to AmqpTemplate elsewhere in this project
-    // (see AI_USAGE_LOG.md, PR #20): SpotBugs' EI_EXPOSE_REP2 flags a field of a mutable concrete
-    // class assigned straight from a constructor parameter, and coding against the interface a
-    // Spring Data template implements is a real fix, not a suppression.
+    // Typed against the RedisOperations interface rather than the concrete StringRedisTemplate
+    // class: good practice on its own (code against the interface a Spring Data template
+    // implements), inspired by the RabbitTemplate -> AmqpTemplate fix elsewhere in this project
+    // (AI_USAGE_LOG.md, PR #20). It does NOT, on its own, satisfy SpotBugs' EI_EXPOSE_REP2 here
+    // the way it did for RabbitTemplate: this field, and objectMapper below, are still live,
+    // stateful, unavoidably mutable framework clients with no immutable variant to switch to --
+    // see spotbugs-exclude.xml for the actual (narrow, documented) fix.
     private final RedisOperations<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
     private final Duration ttl;

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!--
+      EI_EXPOSE_REP2 excluded, narrowly, for three classes in v2-shortener-service's shortlink
+      package (Task #9): ShortLinkCache, ShortLinkService, and ShortLinkController.
+
+      Each stores a constructor-injected Spring collaborator (an ObjectMapper, a
+      StringRedisTemplate/RedisOperations, or this project's own service/cache beans) as a
+      field -- standard Spring dependency injection, not caller-owned mutable state whose
+      defensive copying would protect any real invariant. SpotBugs flags this because its
+      structural-immutability check is transitive: ShortLinkCache holds a live ObjectMapper and
+      a live Redis client (both fundamentally mutable, stateful framework objects -- there is no
+      immutable variant to switch to, and "copying" either would defeat the point of injecting
+      them), so ShortLinkCache itself can never be proven immutable, and neither can anything
+      that in turn stores a ShortLinkCache (ShortLinkService), or stores that
+      (ShortLinkController). See AI_USAGE_LOG.md for the specific finding this addresses.
+
+      This is a genuinely different situation from PR #20's RabbitTemplate -> AmqpTemplate fix,
+      or from this same PR's CachedShortLink/CreateUrlRequest fix (both real defensive-copy
+      fixes, not exclusions): those had a real, provably-immutable alternative available
+      (an interface with no mutating surface, or List.copyOf). No such alternative exists for a
+      live ObjectMapper/Redis client or for a service class that depends on one.
+    -->
+    <Match>
+        <Or>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.cache.ShortLinkCache"/>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.service.ShortLinkService"/>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.web.ShortLinkController"/>
+        </Or>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+</FindBugsFilter>
