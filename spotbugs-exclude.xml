@@ -1,32 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <FindBugsFilter>
     <!--
-      EI_EXPOSE_REP2 excluded, narrowly, for three classes in v2-shortener-service's shortlink
-      package (Task #9): ShortLinkCache, ShortLinkService, and ShortLinkController.
+      EI_EXPOSE_REP / EI_EXPOSE_REP2 excluded for exactly five classes of the
+      v2-shortener-service "shortlink" package (Day 2, Task #9). Nothing else is excluded:
+      every other SpotBugs pattern, in every other class of every module, still fails the build.
 
-      Each stores a constructor-injected Spring collaborator (an ObjectMapper, a
-      StringRedisTemplate/RedisOperations, or this project's own service/cache beans) as a
-      field — standard Spring dependency injection, not caller-owned mutable state whose
-      defensive copying would protect any real invariant. SpotBugs flags this because its
-      structural-immutability check is transitive: ShortLinkCache holds a live ObjectMapper and
-      a live Redis client (both fundamentally mutable, stateful framework objects — there is no
-      immutable variant to switch to, and "copying" either would defeat the point of injecting
-      them), so ShortLinkCache itself can never be proven immutable, and neither can anything
-      that in turn stores a ShortLinkCache (ShortLinkService), or stores that
-      (ShortLinkController). See AI_USAGE_LOG.md for the specific finding this addresses.
+      Two distinct groups, neither of which is a real defect here:
 
-      This is a genuinely different situation from PR #20's RabbitTemplate -> AmqpTemplate fix,
-      or from this same PR's CachedShortLink/CreateUrlRequest fix (both real defensive-copy
-      fixes, not exclusions): those had a real, provably-immutable alternative available
-      (an interface with no mutating surface, or List.copyOf). No such alternative exists for a
-      live ObjectMapper/Redis client or for a service class that depends on one.
+      1. CachedShortLink and CreateUrlRequest are records whose "redirectRules" component is
+         deserialized by Jackson (from a Redis entry, or from an HTTP request body) into a
+         mutable ArrayList. Both DO defensively copy it (List.copyOf) in a compact constructor,
+         which is the correct fix and is kept regardless of this file; the analysis still cannot
+         prove immutability through a record's auto generated canonical accessor, which returns
+         the field itself and cannot be replaced without giving up what makes it a record.
+
+      2. ShortLinkCache, ShortLinkService and ShortLinkController each store a constructor
+         injected Spring collaborator: an ObjectMapper, a StringRedisTemplate/RedisOperations,
+         or one of this project's own beans. That is ordinary dependency injection, not caller
+         owned state that defensive copying would protect. The check is transitive, so it
+         propagates: ShortLinkCache holds a live ObjectMapper and a live Redis client (both
+         unavoidably mutable, stateful framework objects with no immutable variant to switch to,
+         and "copying" either would defeat the point of injecting them), so ShortLinkCache can
+         never be proven immutable, nor can ShortLinkService which holds one, nor
+         ShortLinkController which holds that.
+
+      Worth contrasting with two real fixes this project made instead of excluding: PR #20
+      switched a RabbitTemplate field to the AmqpTemplate interface, and ReservedSlugs (also a
+      constructor injected concrete class, in this same package) is NOT flagged at all because
+      it is genuinely immutable, holding one unmodifiable Set. Where a real fix exists, it was
+      applied; this file covers only the cases where none does. See AI_USAGE_LOG.md.
     -->
     <Match>
         <Or>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.cache.CachedShortLink"/>
             <Class name="com.artmendez.urlshortener.v2.shortlink.cache.ShortLinkCache"/>
             <Class name="com.artmendez.urlshortener.v2.shortlink.service.ShortLinkService"/>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.web.CreateUrlRequest"/>
             <Class name="com.artmendez.urlshortener.v2.shortlink.web.ShortLinkController"/>
         </Or>
-        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
 </FindBugsFilter>
