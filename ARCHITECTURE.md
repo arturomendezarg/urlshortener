@@ -268,12 +268,17 @@ Esto da trazabilidad continua (no solo 3 ejemplos aislados) para sustentar "dept
 
 ## 11. Observability & Quality Gates
 
-- Métricas expuestas vía Micrometer (`/actuator/prometheus`) en cada servicio — suficiente para verificar en vivo que la latencia de redirect y el delay de consistencia eventual de analíticas están dentro de lo esperado, sin necesidad de montar un stack de Grafana completo para el ejercicio.
+**Estado:** las piezas de esta sección ya están implementadas (no solo planeadas) desde el PR de "quality gates" (ver AI_USAGE_LOG.md) — se declara explícitamente para que quede trazable el momento en que dejaron de ser una promesa de diseño y pasaron a ser código real.
+
+- **Análisis estático (Checkstyle + SpotBugs):** declarados como `<build><plugins>` en el `pom.xml` raíz (no `<pluginManagement>`), para que los módulos hijo los hereden y ejecuten automáticamente en la fase `verify` sin repetir configuración. Checkstyle usa un ruleset propio y deliberadamente acotado (`checkstyle.xml`, en la raíz del repo) — arranca como gate real (puede fallar el build) sin generar una ola de violaciones de estilo sobre código ya escrito; se puede endurecer progresivamente. SpotBugs analiza el bytecode compilado buscando patrones de bugs conocidos, con umbral "Medium".
+- **Escaneo de dependencias (seguridad):** se optó por **GitHub Dependabot** (`.github/dependabot.yml` + vulnerability alerts habilitadas a nivel de repo) en vez de OWASP Dependency-Check como plugin de Maven, que era el plan original. Razón del cambio: Dependency-Check depende de la NVD API, que sin una API key registrada aplica un rate-limit agresivo y puede volver el job de CI lento o inestable — mal encaje para un pipeline que corre en cada PR de un ejercicio con tiempo acotado. Dependabot es nativo de GitHub, no requiere infraestructura adicional, y cubre el mismo objetivo.
+- **Observabilidad (Micrometer/Actuator):** `spring-boot-starter-actuator` + `micrometer-registry-prometheus` en el Monolito V1 y el API Gateway (los dos servicios ejecutables hasta ahora), con `/actuator/health`, `/actuator/info` y `/actuator/prometheus` expuestos — suficiente para verificar en vivo latencia y salud sin montar un stack de Grafana completo para el ejercicio. Pendiente: agregar lo mismo a los servicios V2 conforme se construyan (Día 2/3).
+- **Performance:** honestamente, todavía no hay un gate automatizado de performance (ej. un umbral de latencia que falle el build). La validación de performance planeada (prueba de carga + chaos test de Redis, ver sección 6 Escenario A) es manual y ejecutable, no una gate de CI — se declara así explícitamente en vez de aparentar una cobertura que no existe.
 - **Pipeline de CI** (`.github/workflows/ci.yml`), corre en cada PR contra `main` y en cada push a `main`, con tres jobs:
   - *Markdown Lint* — valida la documentación (`.markdownlint-cli2.jsonc` desactiva reglas ruidosas como longitud de línea y HTML inline, necesario por los diagramas Mermaid).
-  - *Secret Scanning* (`gitleaks`) — corre desde ahora, aunque el repo sea solo documentación, para nunca dejar que una credencial se cuele en el historial.
-  - *Build and Test* — condicional a que exista `pom.xml`: hasta que el Día 1 no aporte el scaffold de Maven, este job se omite de forma explícita (no falla en falso); una vez exista el proyecto, corre `mvn verify`, que es donde quedan integrados Checkstyle/SpotBugs (análisis estático) y OWASP Dependency-Check (escaneo de dependencias) como plugins de Maven — no como steps de CI separados.
-- Estos tres jobs son los candidatos a marcarse como *required status checks* en la protección de `main` en cuanto corran al menos una vez (sección 8.1).
+  - *Secret Scanning* (`gitleaks`) — corre desde el inicio del repo, aunque al principio solo hubiera documentación, para nunca dejar que una credencial se cuele en el historial.
+  - *Build and Test* — corre `mvn verify`, que es donde quedan integrados Checkstyle y SpotBugs (análisis estático) como plugins de Maven — no como steps de CI separados.
+- Estos tres jobs son *required status checks* en la protección de `main` (sección 8.1).
 
 ## 12. Risks & Guardrails
 

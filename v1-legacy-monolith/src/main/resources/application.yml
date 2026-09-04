@@ -14,3 +14,12 @@ spring:
     open-in-view: false
   liquibase:
     change-log: classpath:db/changelog/changelog-master.xml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized

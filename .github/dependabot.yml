@@ -1,0 +1,19 @@
+# Escaneo de dependencias (quality gate de seguridad, ver ARCHITECTURE.md sección 11 y
+# AI_USAGE_LOG.md). Se optó por Dependabot en vez de OWASP Dependency-Check como plugin de
+# Maven: Dependency-Check depende de la NVD API, que sin una API key registrada aplica un
+# rate-limit agresivo (segundos de espera por request) y puede volver el job de CI lento o
+# inestable — mal encaje para un pipeline que debe correr en cada PR de un ejercicio con
+# tiempo acotado. Dependabot es nativo de GitHub, no requiere configuración de infraestructura
+# adicional, y cubre el mismo objetivo (alertar sobre dependencias con vulnerabilidades
+# conocidas).
+version: 2
+updates:
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

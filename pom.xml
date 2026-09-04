@@ -22,13 +22,70 @@
 
   <!--
     Los módulos se agregan uno por uno a medida que cada tarea del plan (ARCHITECTURE.md §7) se
-    implementa en su propio PR, para mantener la trazabilidad tarea-por-tarea. Vacío en este PR
-    a propósito (scaffold inicial).
+    implementa en su propio PR, para mantener la trazabilidad tarea-por-tarea.
   -->
   <modules>
     <module>v1-legacy-monolith</module>
     <module>api-gateway</module>
     <module>v2-shortener-contract</module>
   </modules>
+
+  <!--
+    Quality gates transversales (ver ARCHITECTURE.md sección 11 y AI_USAGE_LOG.md): declarados
+    aquí como <build><plugins> (no <pluginManagement>) para que cada módulo hijo los ejecute
+    automáticamente en su fase verify, sin tener que repetir la configuración.
+
+    - checkstyle: análisis estático de estilo/errores comunes (ruleset propio en checkstyle.xml,
+      deliberadamente acotado para arrancar como gate real sin generar una ola de violaciones
+      sobre código ya escrito).
+    - spotbugs: análisis estático de patrones de bugs sobre el bytecode compilado.
+
+    El escaneo de dependencias (seguridad) se resolvió con GitHub Dependabot en vez de un plugin
+    de Maven — ver ARCHITECTURE.md sección 11 para la justificación de ese cambio de enfoque.
+  -->
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>3.3.1</version>
+        <configuration>
+          <configLocation>${maven.multiModuleProjectDirectory}/checkstyle.xml</configLocation>
+          <consoleOutput>true</consoleOutput>
+          <failOnViolation>true</failOnViolation>
+          <violationSeverity>error</violationSeverity>
+          <includeTestSourceDirectory>true</includeTestSourceDirectory>
+        </configuration>
+        <executions>
+          <execution>
+            <id>checkstyle-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <version>4.8.6.4</version>
+        <configuration>
+          <effort>Default</effort>
+          <threshold>Medium</threshold>
+          <failOnError>true</failOnError>
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotbugs-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 
 </project>
