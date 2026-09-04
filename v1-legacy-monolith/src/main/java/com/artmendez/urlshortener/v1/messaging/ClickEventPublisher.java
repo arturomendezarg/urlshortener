@@ -2,7 +2,7 @@ package com.artmendez.urlshortener.v1.messaging;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.core.AmqpTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -21,13 +21,19 @@ public class ClickEventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(ClickEventPublisher.class);
 
-    private final RabbitTemplate rabbitTemplate;
+    private final AmqpTemplate amqpTemplate;
     private final String queueName;
 
+    // Se depende de la interfaz AmqpTemplate (no de la clase concreta RabbitTemplate): Spring
+    // igual inyecta el RabbitTemplate auto-configurado (implementa AmqpTemplate), y programar
+    // contra la interfaz evita el hallazgo de SpotBugs EI_EXPOSE_REP2 ("puede exponer
+    // representacion interna") que se dispara al guardar una clase concreta mutable recibida
+    // por constructor - la misma razon por la que los repositorios de Spring Data (interfaces)
+    // en otras clases de este proyecto nunca lo disparan.
     public ClickEventPublisher(
-            RabbitTemplate rabbitTemplate,
+            AmqpTemplate amqpTemplate,
             @Value("${app.messaging.click-events-queue}") String queueName) {
-        this.rabbitTemplate = rabbitTemplate;
+        this.amqpTemplate = amqpTemplate;
         this.queueName = queueName;
     }
 
@@ -35,7 +41,7 @@ public class ClickEventPublisher {
         try {
             // Exchange por defecto ("") con routing key = nombre de la cola: no requiere que V1
             // declare ni conozca ningun exchange, solo el nombre acordado de la cola.
-            rabbitTemplate.convertAndSend(queueName, event);
+            amqpTemplate.convertAndSend(queueName, event);
         } catch (Exception ex) {
             log.warn(
                     "No se pudo publicar el evento de clic para el short code '{}' "
