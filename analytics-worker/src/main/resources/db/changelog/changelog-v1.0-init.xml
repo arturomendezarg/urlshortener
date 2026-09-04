@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="analytics-v1.0-init-click-events-table" author="art-claude-dev">
+        <comment>
+            Append-only table fed by the Analytics Worker (see ARCHITECTURE.md, section 4.2 and
+            section 6, Scenario C). This module owns its own Liquibase changelog even though it
+            shares the same physical Postgres instance as v1-legacy-monolith: Liquibase tracks
+            changesets by the (id, author, filename) triple in a shared DATABASECHANGELOG table,
+            so there is no collision with V1's changelogs as long as ids stay unique per file,
+            which they do here.
+        </comment>
+        <createTable tableName="click_events">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="short_code" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="service_origin" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="occurred_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="anonymized_ip" type="VARCHAR(45)"/>
+            <column name="user_agent" type="TEXT"/>
+            <column name="device_type" type="VARCHAR(20)"/>
+            <column name="referrer" type="TEXT"/>
+        </createTable>
+        <createIndex indexName="idx_click_events_short_code" tableName="click_events">
+            <column name="short_code"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>
