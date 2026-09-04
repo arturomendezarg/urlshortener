@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.artmendez.urlshortener</groupId>
+    <artifactId>url-shortener-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>bulk-processor</artifactId>
+  <packaging>jar</packaging>
+  <name>Bulk Processor</name>
+  <description>
+    Asynchronous RabbitMQ consumer for the "bulk-url-jobs" queue (Day 3, Task #10; see
+    ARCHITECTURE.md, section 3.1 and section 7). v2-shortener-service creates a BulkJob and its
+    BulkJobItem rows synchronously and publishes one message per job; this module reloads the
+    job's items, validates and creates a ShortLink per item (reusing LongUrlValidator,
+    ReservedSlugs and Base62CodeGenerator from v2-shortener-contract), and writes the outcome
+    back onto the same bulk_jobs/bulk_job_items rows.
+
+    Does NOT own schema creation: bulk_jobs, bulk_job_items and short_links are all created by
+    v2-shortener-service's Liquibase changelog (see that module's changelog-v1.0-init.xml and
+    changelog-v2.0-bulk-jobs.xml). liquibase-core is only a test dependency here, used to lay
+    down a schema mirror for this module's own Testcontainers-backed integration tests (see
+    src/test/resources/db/changelog) — the production jar assumes v2-shortener-service's
+    migrations already ran against the shared database, the same "producer/consumer, one owner
+    creates the table" split already used for click-events (analytics-worker) and short_links.
+  </description>
+
+  <properties>
+    <testcontainers.version>1.20.1</testcontainers.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.artmendez.urlshortener</groupId>
+      <artifactId>v2-shortener-contract</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-amqp</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.retry</groupId>
+      <artifactId>spring-retry</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.amqp</groupId>
+      <artifactId>spring-rabbit-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <!--
+        Test-only: lays down this module's schema mirror (src/test/resources/db/changelog)
+        against the Testcontainers Postgres instance. Not present on the production classpath,
+        see this module's own pom.xml description for why.
+      -->
+      <groupId>org.liquibase</groupId>
+      <artifactId>liquibase-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>rabbitmq</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.awaitility</groupId>
+      <artifactId>awaitility</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>bulk-processor</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring-boot.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>

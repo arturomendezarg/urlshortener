@@ -1,0 +1,60 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: bulk-processor
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:urlshortener}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      # Never "update"/"create": this module does not own the schema (see pom.xml). "validate"
+      # only checks its entity mappings against tables that must already exist, created by
+      # v2-shortener-service's Liquibase changelog against the shared database.
+      ddl-auto: validate
+    open-in-view: false
+  # liquibase-core is a TEST-only dependency (see pom.xml); this property is only ever read when
+  # that dependency is on the classpath, i.e. only in this module's own tests, where it points
+  # at the schema mirror under src/test/resources. Harmless to leave set here: with liquibase-core
+  # absent from the runtime jar, Spring Boot's LiquibaseAutoConfiguration never activates and this
+  # key is simply never read.
+  liquibase:
+    change-log: classpath:db/changelog/changelog-master.xml
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+app:
+  messaging:
+    bulk-url-jobs-queue: bulk-url-jobs
+    # Dead-letter exchange/queue a poison message ends up in once retries are exhausted (see
+    # RabbitConfig and BulkJobListener). Kept as its own queue (not reusing the main one) so an
+    # operator can inspect/replay it without it being consumed by this same listener.
+    bulk-url-jobs-dlx: bulk-url-jobs.dlx
+    bulk-url-jobs-dlq: bulk-url-jobs.dlq
+    retry:
+      # Bounded local retry (Spring Retry, via RabbitConfig's RetryInterceptorBuilder) for
+      # transient failures (e.g. a momentary DB connection blip) before a message is
+      # dead-lettered. Deliberately small: this is IN ADDITION TO, not instead of, the
+      # per-item idempotency in BulkJobProcessingService, which is what actually makes
+      # broker-level redelivery (consumer crash mid-batch) safe -- these retries only cover
+      # failures within a single delivery attempt.
+      max-attempts: 3
+      initial-interval-ms: 500
+      multiplier: 2.0
+      max-interval-ms: 5000
+  shortlink:
+    # Same reserved-slug list as v2-shortener-service's app.shortlink.reserved-slugs (see that
+    # module's application.yml) -- kept independently configurable rather than sharing one
+    # Spring Cloud Config source, out of scope for this exercise's timebox.
+    reserved-slugs: api,admin,health,actuator
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
