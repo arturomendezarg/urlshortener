@@ -39,8 +39,9 @@ services:
       timeout: 10s
       retries: 10
 
-  # Keycloak starts in dev mode. The app's realm (OIDC clients, test user) is added
-  # on Day 2 via infra/keycloak/realm-export.json — for now this directory is intentionally empty.
+  # Keycloak starts in dev mode. --import-realm loads infra/keycloak/realm-export.json on
+  # startup (Day 2, Task #8): realm "urlshortener", a public dev/testing client
+  # ("url-shortener-v2") and a test user ("demo"/"demo_local") to obtain a token with.
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     command: start-dev --import-realm

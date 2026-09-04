@@ -29,6 +29,7 @@
     <module>api-gateway</module>
     <module>v2-shortener-contract</module>
     <module>analytics-worker</module>
+    <module>v2-shortener-service</module>
   </modules>
 
   <!--
