@@ -269,7 +269,11 @@ Esto da trazabilidad continua (no solo 3 ejemplos aislados) para sustentar "dept
 ## 11. Observability & Quality Gates
 
 - Métricas expuestas vía Micrometer (`/actuator/prometheus`) en cada servicio — suficiente para verificar en vivo que la latencia de redirect y el delay de consistencia eventual de analíticas están dentro de lo esperado, sin necesidad de montar un stack de Grafana completo para el ejercicio.
-- Pipeline de CI (GitHub Actions): build, tests, análisis estático (Checkstyle o SpotBugs) y escaneo de dependencias (OWASP Dependency-Check) como quality gates antes de mergear.
+- **Pipeline de CI** (`.github/workflows/ci.yml`), corre en cada PR contra `main` y en cada push a `main`, con tres jobs:
+  - *Markdown Lint* — valida la documentación (`.markdownlint-cli2.jsonc` desactiva reglas ruidosas como longitud de línea y HTML inline, necesario por los diagramas Mermaid).
+  - *Secret Scanning* (`gitleaks`) — corre desde ahora, aunque el repo sea solo documentación, para nunca dejar que una credencial se cuele en el historial.
+  - *Build and Test* — condicional a que exista `pom.xml`: hasta que el Día 1 no aporte el scaffold de Maven, este job se omite de forma explícita (no falla en falso); una vez exista el proyecto, corre `mvn verify`, que es donde quedan integrados Checkstyle/SpotBugs (análisis estático) y OWASP Dependency-Check (escaneo de dependencias) como plugins de Maven — no como steps de CI separados.
+- Estos tres jobs son los candidatos a marcarse como *required status checks* en la protección de `main` en cuanto corran al menos una vez (sección 8.1).
 
 ## 12. Risks & Guardrails
 
