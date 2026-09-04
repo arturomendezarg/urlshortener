@@ -20,6 +20,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -56,6 +57,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * spring.security.oauth2.resourceserver.jwt.issuer-uri} (set in {@link #configureProperties})
  * are built from the SAME container host/port for exactly that reason — a mismatch here is the
  * most common way this kind of test breaks.
+ *
+ * <p>Task #9 turned this service into a full JPA + Redis-backed application, so
+ * {@code @SpringBootTest} now needs a working PostgreSQL and Redis to start at all, not just
+ * Keycloak — this test adds both as Testcontainers (same "real infra over mocks" philosophy as
+ * the rest of this project's integration suite), even though neither is exercised directly by
+ * these particular test methods. Redis uses a plain {@code GenericContainer} with the same
+ * {@code redis:7-alpine} image as docker-compose, mirroring the pattern already used for
+ * Keycloak here, rather than pulling in a third-party Testcontainers Redis module.
  */
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -64,8 +73,10 @@ class KeycloakResourceServerIntegrationTest {
     private static final String REALM = "urlshortener";
     private static final String CLIENT_ID = "url-shortener-v2";
 
-    // Not implemented until Task #9 — used here purely as a stand-in path to exercise the
-    // security filter chain, not as a test of any business behavior.
+    // GET /api/v2/urls ("listUrls" in the OpenAPI contract) is still not implemented even after
+    // Task #9, which only added POST /api/v2/urls (create) and the public GET /{shortCode}
+    // redirect -- so a GET here still has no handler, and remains a valid stand-in path to
+    // exercise the security filter chain without depending on any business behavior.
     private static final String UNIMPLEMENTED_V2_ENDPOINT = "/api/v2/urls";
 
     private static String testUsername;
@@ -83,6 +94,13 @@ class KeycloakResourceServerIntegrationTest {
             .waitingFor(Wait.forLogMessage(".*started in.*\\n", 1))
             .withStartupTimeout(Duration.ofMinutes(3));
 
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    @Container
+    static final GenericContainer<?> REDIS =
+            new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
+
     @BeforeAll
     static void loadTestUserCredentials() throws IOException {
         ObjectMapper mapper = new ObjectMapper();
@@ -97,6 +115,11 @@ class KeycloakResourceServerIntegrationTest {
         registry.add(
                 "spring.security.oauth2.resourceserver.jwt.issuer-uri",
                 () -> keycloakBaseUrl() + "/realms/" + REALM);
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
     }
 
     private static String keycloakBaseUrl() {
@@ -160,8 +183,9 @@ class KeycloakResourceServerIntegrationTest {
                 String.class);
 
         // 404, not 401/403: the token cleared security and reached DispatcherServlet, which has
-        // no handler for this path yet (Task #9). That is exactly what proves the token was
-        // valid -- an invalid or missing token would still be rejected with 401 at this same URL.
+        // no GET handler mapped at this path (only POST, added in Task #9). That is exactly what
+        // proves the token was valid -- an invalid or missing token would still be rejected with
+        // 401 at this same URL.
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 }

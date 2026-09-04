@@ -2,6 +2,7 @@ package com.artmendez.urlshortener.v2.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -22,11 +23,12 @@ import org.springframework.security.web.SecurityFilterChain;
  *   <li>CSRF protection is disabled and sessions are stateless: this is a pure Bearer-token REST
  *       API with no cookie-based session or browser form login, so CSRF (which protects
  *       cookie-authenticated state-changing requests) does not apply here.
- *   <li>Only the actuator health/info/prometheus endpoints are public; everything else requires
- *       a valid JWT. There is no fine-grained, per-endpoint rule yet (e.g. the public {@code GET
- *       /{shortCode}} redirect from ARCHITECTURE.md section 5) because those business endpoints
- *       do not exist in this module yet — they are Task #9's scope, built on top of this
- *       config, and will need their own explicit {@code permitAll()} rule at that point.
+ *   <li>The actuator health/info/prometheus endpoints and {@code GET /{shortCode}} (the public
+ *       redirect, Task #9) are the only public routes; everything else — including
+ *       {@code POST /api/v2/urls} — requires a valid JWT. {@code GET /{shortCode}} must stay
+ *       public: it is the link a browser follows with no Authorization header at all, per
+ *       ARCHITECTURE.md section 5 and the OpenAPI contract's own note that this path is
+ *       deliberately outside the authenticated {@code /api/v2} contract.
  * </ul>
  */
 @Configuration
@@ -39,6 +41,8 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus")
+                        .permitAll()
+                        .requestMatchers(HttpMethod.GET, "/{shortCode}")
                         .permitAll()
                         .anyRequest()
                         .authenticated())

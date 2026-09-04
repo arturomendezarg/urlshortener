@@ -1,5 +1,6 @@
 package com.artmendez.urlshortener.v2.config;
 
+import com.artmendez.urlshortener.v2.shortlink.service.ShortLinkService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -36,6 +37,14 @@ class SecurityConfigTest {
     @MockBean
     private JwtDecoder jwtDecoder;
 
+    // @WebMvcTest with no controllers=... attribute scans every @RestController in the app,
+    // which now includes ShortLinkController (Task #9) -- its constructor needs a
+    // ShortLinkService bean, which this slice does not provide on its own. Mocked here purely
+    // to let the context load; this test still only exercises SecurityConfig's authorization
+    // rules, never ShortLinkService's behavior.
+    @MockBean
+    private ShortLinkService shortLinkService;
+
     @Test
     void rejectsAnUnauthenticatedRequest() throws Exception {
         mockMvc.perform(get("/api/v2/urls")).andExpect(status().isUnauthorized());
@@ -44,9 +53,11 @@ class SecurityConfigTest {
     @Test
     void letsAnAuthenticatedRequestThroughSecurity() throws Exception {
         // 404, not 401/403: authentication clears security and reaches DispatcherServlet, which
-        // has no handler for this not-yet-implemented (Task #9) path -- same reasoning as
-        // KeycloakResourceServerIntegrationTest, just with a mocked authentication instead of a
-        // real token from a real Keycloak.
+        // has no GET handler mapped at "/api/v2/urls" -- Task #9 only added POST there (create)
+        // plus the public GET /{shortCode} redirect, so GET /api/v2/urls ("listUrls" in the
+        // OpenAPI contract) is still unmapped and remains a valid stand-in path here. Same
+        // reasoning as KeycloakResourceServerIntegrationTest, just with a mocked authentication
+        // instead of a real token from a real Keycloak.
         mockMvc.perform(get("/api/v2/urls").with(jwt())).andExpect(status().isNotFound());
     }
 }

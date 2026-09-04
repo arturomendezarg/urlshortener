@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="v2-shortener-service-v1.0-init-short-links-table" author="art-claude-dev">
+        <comment>
+            Backing table for the V2 Shortener/Redirect Service (see ARCHITECTURE.md, section
+            4.2 and section 6, Scenario A/C; Day 2, Task #9). This module owns its own Liquibase
+            changelog even though it shares the same physical Postgres instance as
+            v1-legacy-monolith and analytics-worker: Liquibase tracks changesets by the
+            (id, author, filename) triple in a shared DATABASECHANGELOG table, so there is no
+            collision as long as ids stay unique per file, which they do here.
+
+            owner_user_id deliberately stores the raw Keycloak "sub" claim (a string) rather than
+            a foreign key to an "app_user" table: no such table is in scope for this exercise
+            (ARCHITECTURE.md's data model documents it, but nothing in the Day 1-3 plan schedules
+            building it), and the Resource Server (Task #8) already gives us a verified subject
+            claim per request with no extra lookup needed. Declared simplification, not an
+            oversight.
+        </comment>
+        <createTable tableName="short_links">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="short_code" type="VARCHAR(20)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uk_short_links_short_code"/>
+            </column>
+            <column name="long_url" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="owner_user_id" type="VARCHAR(255)"/>
+            <column name="redirect_rules" type="JSONB"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="expires_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="is_active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex indexName="idx_short_links_owner_user_id" tableName="short_links">
+            <column name="owner_user_id"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>
