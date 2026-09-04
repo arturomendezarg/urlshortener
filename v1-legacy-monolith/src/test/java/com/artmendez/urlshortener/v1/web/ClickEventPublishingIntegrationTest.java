@@ -4,14 +4,14 @@ import com.artmendez.urlshortener.v1.V1LegacyMonolithApplication;
 import com.artmendez.urlshortener.v1.domain.UrlRecord;
 import com.artmendez.urlshortener.v1.messaging.ClickEvent;
 import com.artmendez.urlshortener.v1.repository.UrlRecordRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -61,20 +61,6 @@ class ClickEventPublishingIntegrationTest {
         registry.add("spring.rabbitmq.password", rabbitmq::getAdminPassword);
     }
 
-    /**
-     * Declara la cola SOLO para esta prueba. V1 en produccion deliberadamente no la declara (ver
-     * {@code RabbitConfig}) — aqui hace falta para poder verificar que el mensaje realmente
-     * llega a algun lado, cumpliendo temporalmente el rol que el Analytics Worker (Tarea #7,
-     * el consumidor real) tendra en produccion.
-     */
-    @TestConfiguration
-    static class TestQueueConfig {
-        @Bean
-        Queue clickEventsQueue() {
-            return new Queue(QUEUE_NAME, false, false, true);
-        }
-    }
-
     @Autowired
     private MockMvc mockMvc;
 
@@ -82,7 +68,27 @@ class ClickEventPublishingIntegrationTest {
     private RabbitTemplate rabbitTemplate;
 
     @Autowired
+    private RabbitAdmin rabbitAdmin;
+
+    @Autowired
     private UrlRecordRepository repository;
+
+    /**
+     * Declara la cola explicitamente antes de cada prueba (idempotente: declarar una cola que ya
+     * existe con las mismas propiedades no falla). V1 en produccion deliberadamente NO la declara
+     * (ver {@code RabbitConfig}) — aqui hace falta para verificar que el mensaje realmente llega
+     * a algun lado, cumpliendo temporalmente el rol que el Analytics Worker (Tarea #7, el
+     * consumidor real) tendra en produccion.
+     *
+     * <p>Nota: un bean {@code Queue} dentro de un {@code @TestConfiguration} anidado NO se
+     * auto-declara aqui porque {@code @SpringBootTest(classes = ...)} usa una configuracion
+     * explicita, lo cual desactiva la auto-deteccion de clases de configuracion anidadas de
+     * Spring Boot Test. Declarar imperativamente via {@code RabbitAdmin} evita esa ambiguedad.
+     */
+    @BeforeEach
+    void declareClickEventsQueue() {
+        rabbitAdmin.declareQueue(new Queue(QUEUE_NAME, false, false, true));
+    }
 
     @Test
     void redirect_publishesClickEvent_withExpectedFields() throws Exception {
