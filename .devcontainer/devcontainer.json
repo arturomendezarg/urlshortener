@@ -1,6 +1,6 @@
 {
   "name": "URL Shortener - Dev Environment",
-  "image": "mcr.microsoft.com/devcontainers/java:1-17-bullseye",
+  "image": "mcr.microsoft.com/devcontainers/java:1-17-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
   },
