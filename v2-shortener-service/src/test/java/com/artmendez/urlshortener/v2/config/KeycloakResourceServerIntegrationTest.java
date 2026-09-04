@@ -1,4 +1,4 @@
-package com.artmendez.urlshortener.v2.web;
+package com.artmendez.urlshortener.v2.config;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,9 +27,23 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * End-to-end proof (Task #8) that this service is a working OAuth2 Resource Server against a
- * REAL Keycloak instance, not a mocked JWT decoder. Uses the exact same {@code
- * quay.io/keycloak/keycloak:26.0} image and the exact same {@code
+ * End-to-end proof (Task #8) that {@link SecurityConfig} is a working OAuth2 Resource Server
+ * against a REAL Keycloak instance, not a mocked JWT decoder — and nothing more than that: this
+ * test exercises the security filter chain directly, with no controller of any kind added to
+ * production code just to make it testable (an earlier version of this PR shipped a small
+ * "whoami" diagnostic controller for exactly that purpose; review feedback correctly pointed out
+ * that stands up unnecessary production surface for something the filter chain itself can
+ * prove).
+ *
+ * <p>The technique: {@code /api/v2/urls} is one of the six real endpoints from the OpenAPI
+ * contract (see {@code v2-shortener-contract}), not yet implemented — Task #9 adds the actual
+ * handler. Hitting it here with no token gets rejected by Spring Security before it ever reaches
+ * the (nonexistent) handler, i.e. {@code 401}. Hitting it with a real, valid token clears
+ * security and falls through to {@code DispatcherServlet}, which has no mapping for it yet, i.e.
+ * {@code 404} — a 404 here is proof the token WAS accepted (an invalid or missing token would
+ * still be {@code 401}), without needing any business logic to exist.
+ *
+ * <p>Uses the exact same {@code quay.io/keycloak/keycloak:26.0} image and the exact same {@code
  * infra/keycloak/realm-export.json} that docker-compose imports for local/Codespace dev (path
  * injected via the {@code keycloak.realm-export.path} system property — see this module's
  * {@code pom.xml}), so there is a single source of truth for the realm definition, not a second
@@ -50,6 +64,10 @@ class KeycloakResourceServerIntegrationTest {
     private static final String CLIENT_ID = "url-shortener-v2";
     private static final String TEST_USERNAME = "demo";
     private static final String TEST_PASSWORD = "demo_local";
+
+    // Not implemented until Task #9 — used here purely as a stand-in path to exercise the
+    // security filter chain, not as a test of any business behavior.
+    private static final String UNIMPLEMENTED_V2_ENDPOINT = "/api/v2/urls";
 
     @Container
     static final GenericContainer<?> KEYCLOAK = new GenericContainer<>("quay.io/keycloak/keycloak:26.0")
@@ -102,28 +120,37 @@ class KeycloakResourceServerIntegrationTest {
     }
 
     @Test
-    void whoAmIRejectsRequestsWithNoToken() {
+    void actuatorHealthIsPubliclyReachableWithNoToken() {
         ResponseEntity<String> response = restTemplate.getForEntity(
-                "http://localhost:" + appPort + "/api/v2/_internal/whoami", String.class);
+                "http://localhost:" + appPort + "/actuator/health", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void rejectsRequestsWithNoTokenBeforeTheyReachAnyHandler() {
+        ResponseEntity<String> response = restTemplate.getForEntity(
+                "http://localhost:" + appPort + UNIMPLEMENTED_V2_ENDPOINT, String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test
-    void whoAmIAcceptsARealTokenIssuedByKeycloakAndReturnsItsClaims() {
+    void acceptsARealTokenIssuedByKeycloakAndLetsItThroughSecurity() {
         String accessToken = obtainAccessToken();
 
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
 
-        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                "http://localhost:" + appPort + "/api/v2/_internal/whoami",
+        ResponseEntity<String> response = restTemplate.exchange(
+                "http://localhost:" + appPort + UNIMPLEMENTED_V2_ENDPOINT,
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
-                new ParameterizedTypeReference<Map<String, Object>>() { });
+                String.class);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody().get("username")).isEqualTo(TEST_USERNAME);
-        assertThat((String) response.getBody().get("issuer")).contains("/realms/" + REALM);
+        // 404, not 401/403: the token cleared security and reached DispatcherServlet, which has
+        // no handler for this path yet (Task #9). That is exactly what proves the token was
+        // valid -- an invalid or missing token would still be rejected with 401 at this same URL.
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 }
