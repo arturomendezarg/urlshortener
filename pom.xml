@@ -25,6 +25,7 @@
     a propósito (scaffold inicial).
   -->
   <modules>
+    <module>v1-legacy-monolith</module>
   </modules>
 
 </project>
