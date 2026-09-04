@@ -1,13 +1,13 @@
 package com.artmendez.urlshortener.v1.service;
 
 /**
- * Se lanza cuando se resuelve un short code que existe pero cuya fecha de expiracion
- * ({@code expiresAt}) ya paso. Distinta de {@link ShortCodeNotFoundException}: el recurso
- * existio y es identificable, pero ya no es valido (HTTP 410 Gone, no 404).
+ * Thrown when resolving a short code that exists but whose expiration date
+ * ({@code expiresAt}) has already passed. Different from {@link ShortCodeNotFoundException}:
+ * the resource existed and is identifiable, but is no longer valid (HTTP 410 Gone, not 404).
  */
 public class UrlExpiredException extends RuntimeException {
 
     public UrlExpiredException(String shortCode) {
-        super("El short code '" + shortCode + "' expiro");
+        super("Short code '" + shortCode + "' has expired");
     }
 }

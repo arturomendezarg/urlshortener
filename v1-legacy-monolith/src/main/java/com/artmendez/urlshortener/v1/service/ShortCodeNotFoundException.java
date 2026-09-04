@@ -1,12 +1,12 @@
 package com.artmendez.urlshortener.v1.service;
 
 /**
- * Se lanza cuando se solicita un short code que no existe en el sistema.
- * Traducida a HTTP 404 en {@link com.artmendez.urlshortener.v1.web.UrlController}.
+ * Thrown when a short code that does not exist in the system is requested.
+ * Translated to HTTP 404 in {@link com.artmendez.urlshortener.v1.web.UrlController}.
  */
 public class ShortCodeNotFoundException extends RuntimeException {
 
     public ShortCodeNotFoundException(String shortCode) {
-        super("No existe una URL asociada al codigo: " + shortCode);
+        super("No URL is associated with code: " + shortCode);
     }
 }

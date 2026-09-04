@@ -51,7 +51,7 @@ class ClickEventPublisherTest {
         doThrow(new AmqpConnectException(new ConnectException("Connection refused")))
                 .when(rabbitTemplate).convertAndSend(any(String.class), any(Object.class));
 
-        // No debe lanzar: este es el contrato central de "fire-and-forget".
+        // Must not throw: this is the core "fire-and-forget" contract.
         publisher().publish(sampleEvent());
 
         verify(rabbitTemplate).convertAndSend(eq(QUEUE_NAME), any(ClickEvent.class));
@@ -59,7 +59,7 @@ class ClickEventPublisherTest {
 
     @Test
     void publish_swallowsAnyRuntimeException_notJustAmqpSpecific() {
-        doThrow(new RuntimeException("fallo inesperado de serializacion"))
+        doThrow(new RuntimeException("unexpected serialization failure"))
                 .when(rabbitTemplate).convertAndSend(any(String.class), any(Object.class));
 
         publisher().publish(sampleEvent());

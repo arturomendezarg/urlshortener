@@ -24,15 +24,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Characterization tests del Monolito V1 (Escenario B — Brownfield, ver ARCHITECTURE.md
- * seccion 6): congelan el comportamiento ACTUAL de V1 antes de tocar nada, para poder probar
- * cero regresiones una vez que se agregue {@code expires_at} en un PR posterior sobre esta
- * misma rama.
+ * Characterization tests of Monolith V1 (Scenario B — Brownfield, see ARCHITECTURE.md
+ * section 6): they freeze V1's CURRENT behavior before touching anything, so that zero
+ * regressions can be verified once {@code expires_at} is added in a later PR on this
+ * same branch.
  *
- * <p>Deliberadamente NO conocen el concepto de expiracion todavia (porque el codigo tampoco lo
- * conoce en el momento en que se escriben). El criterio de exito de la tarea de Brownfield es
- * que estos tests seguirán pasando sin ningún cambio después de agregar la columna y la lógica
- * de expiración — si alguno necesita modificarse para seguir pasando, es señal de una regresión.
+ * <p>They deliberately do NOT know about the concept of expiration yet (because the code does
+ * not know about it either at the time they are written). The success criterion for the
+ * Brownfield task is that these tests keep passing with NO changes after the column and the
+ * expiration logic are added — if any of them needs to be modified to keep passing, that is a
+ * sign of a regression.
  */
 @Testcontainers
 @SpringBootTest(classes = V1LegacyMonolithApplication.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK)
@@ -74,8 +75,8 @@ class UrlBrownfieldCharacterizationTest {
 
     @Test
     void redirect_forExistingLegacyRow_returns301WithOriginalLongUrl() throws Exception {
-        // Simula una fila que ya existia ANTES de esta tarea de Brownfield (creada directo por
-        // repositorio, como si viniera de antes de que expires_at existiera).
+        // Simulates a row that already existed BEFORE this Brownfield task (created directly via
+        // the repository, as if it came from before expires_at existed).
         UrlRecord legacyRow = repository.save(
                 new UrlRecord("legacy1", "https://example.com/pre-existing-row", OffsetDateTime.now()));
 

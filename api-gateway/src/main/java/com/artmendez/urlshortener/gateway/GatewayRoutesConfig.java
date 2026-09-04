@@ -8,21 +8,21 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 
 /**
- * Rutas del Gateway (version basica, Dia 1 / Tarea #3 del plan).
+ * Gateway routes (basic version, Day 1 / Task #3 of the plan).
  *
- * <p>Dos rutas activas:
+ * <p>Two active routes:
  * <ul>
- *   <li>{@code /api/v1/**} (plano de control) -> Monolito V1, tal cual.</li>
- *   <li>{@code GET /{shortCode}} (plano de datos publico, sin prefijo) -> Monolito V1.
- *       Nota: la version final de esta ruta (ARCHITECTURE.md seccion 3.1) debe consultar
- *       primero el indice de codigos V2 en Redis y solo delegar a V1 si no lo encuentra.
- *       Esa logica se agrega cuando exista el servicio V2 con su propio indice; por ahora,
- *       con V1 como unico backend real, delegar directo es equivalente y evita construir
- *       una dependencia con Redis antes de que haya algo del otro lado que la use.</li>
+ *   <li>{@code /api/v1/**} (control plane) -> Monolith V1, as-is.</li>
+ *   <li>{@code GET /{shortCode}} (public data plane, no prefix) -> Monolith V1.
+ *       Note: the final version of this route (ARCHITECTURE.md section 3.1) must first
+ *       check the V2 code index in Redis and only delegate to V1 if it is not found there.
+ *       That logic will be added once the V2 service exists with its own index; for now,
+ *       with V1 as the only real backend, delegating directly is equivalent and avoids
+ *       building a dependency on Redis before anything on the other side uses it.</li>
  * </ul>
  *
- * <p>{@code /api/v2/**} no tiene ruta aqui a proposito: la resuelve {@link V2StubController}
- * con un 501 explicito, ya que el servicio V2 todavia no existe (arranca en la Tarea #4).
+ * <p>{@code /api/v2/**} intentionally has no route here: it is handled by {@link V2StubController}
+ * with an explicit 501, since the V2 service does not exist yet (it starts in Task #4).
  */
 @Configuration
 public class GatewayRoutesConfig {

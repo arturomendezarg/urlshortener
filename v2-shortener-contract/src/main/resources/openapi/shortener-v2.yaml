@@ -3,44 +3,44 @@ info:
   title: URL Shortener - API V2
   version: "2.0.0"
   description: >
-    Contrato REST del sistema V2 (moderno) de acortamiento de URLs. Definido primero, antes
-    de la implementacion (Dia 1, Tarea #4 del plan), para poder validar el diseño de la API
-    con el equipo antes de escribir código de negocio y persistencia.
+    REST contract of the V2 (modern) URL shortening system. Defined first, before
+    the implementation (Day 1, Task #4 of the plan), to validate the API design
+    with the team before writing business and persistence code.
 
-    Ver ARCHITECTURE.md para contexto completo:
-      - Seccion 3.1 (Componentes) y seccion 6, Escenario A: por que existe este contrato y
-        que microservicios lo implementan (Shortener Service, Bulk Processor, Analytics
-        Worker) en los proximos dias del plan.
-      - Seccion 4.1: resumen de estos mismos endpoints en prosa.
-      - Seccion 4.2: modelo de datos subyacente (`short_links`, `app_user`, `click_events`,
+    See ARCHITECTURE.md for full context:
+      - Section 3.1 (Components) and section 6, Scenario A: why this contract exists and
+        which microservices implement it (Shortener Service, Bulk Processor, Analytics
+        Worker) in the coming days of the plan.
+      - Section 4.1: prose summary of these same endpoints.
+      - Section 4.2: underlying data model (`short_links`, `app_user`, `click_events`,
         `bulk_jobs`, `bulk_job_items`).
-      - Seccion 5: seguridad (OAuth2/OIDC via Keycloak, Resource Server).
-      - Seccion 6, Escenario C: origen de `redirectRules` (redireccion condicional simple por
-        tipo de dispositivo) y `expiresAt` (410 Gone si venció).
+      - Section 5: security (OAuth2/OIDC via Keycloak, Resource Server).
+      - Section 6, Scenario C: origin of `redirectRules` (simple conditional redirect by
+        device type) and `expiresAt` (410 Gone once expired).
 
-    Fuera de alcance de este contrato: `GET /{shortCode}` (la redireccion publica real) no
-    vive bajo `/api/v2` — el dominio publico es unico y estable (patron Strangler Fig,
-    seccion 3.1) y lo resuelve el API Gateway consultando primero el indice V2 y luego el
-    Monolito V1. Se documenta en el propio Gateway, no aqui.
+    Out of scope for this contract: `GET /{shortCode}` (the real public redirect) does not
+    live under `/api/v2` — the public domain is single and stable (Strangler Fig pattern,
+    section 3.1) and is resolved by the API Gateway, checking the V2 index first and then
+    Monolith V1. It is documented in the Gateway itself, not here.
 servers:
   - url: /api/v2
-    description: A traves del API Gateway (unico punto de entrada, patron Strangler Fig)
+    description: Through the API Gateway (single entry point, Strangler Fig pattern)
 
 security:
   - bearerAuth: []
 
 tags:
   - name: urls
-    description: Gestion de URLs cortas (creacion, listado, revocacion, analitica)
+    description: Short URL management (creation, listing, revocation, analytics)
   - name: bulk
-    description: Creacion masiva asincrona (via RabbitMQ, cola bulk-url-jobs)
+    description: Asynchronous bulk creation (via RabbitMQ, bulk-url-jobs queue)
 
 paths:
   /urls:
     post:
       tags: [urls]
       operationId: createShortUrl
-      summary: Crear una URL corta
+      summary: Create a short URL
       requestBody:
         required: true
         content:
@@ -49,7 +49,7 @@ paths:
               $ref: "#/components/schemas/CreateUrlRequest"
       responses:
         "201":
-          description: URL corta creada
+          description: Short URL created
           content:
             application/json:
               schema:
@@ -59,7 +59,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: El customAlias solicitado ya está en uso
+          description: The requested customAlias is already in use
           content:
             application/json:
               schema:
@@ -67,10 +67,10 @@ paths:
     get:
       tags: [urls]
       operationId: listUrls
-      summary: Listar las URLs del usuario autenticado
+      summary: List the authenticated user's URLs
       responses:
         "200":
-          description: Listado de URLs del usuario
+          description: List of the user's URLs
           content:
             application/json:
               schema:
@@ -84,10 +84,10 @@ paths:
     post:
       tags: [bulk]
       operationId: createBulkUrls
-      summary: Encolar creación masiva de URLs (procesamiento asíncrono)
+      summary: Enqueue bulk URL creation (asynchronous processing)
       description: >
-        Encola el job en RabbitMQ (cola bulk-url-jobs) y responde de inmediato; el Bulk
-        Processor lo procesa fuera de banda. Consultar el progreso con
+        Enqueues the job in RabbitMQ (bulk-url-jobs queue) and responds immediately; the Bulk
+        Processor processes it out of band. Check progress with
         GET /urls/bulk/{jobId}.
       requestBody:
         required: true
@@ -97,7 +97,7 @@ paths:
               $ref: "#/components/schemas/BulkCreateRequest"
       responses:
         "202":
-          description: Job de creación masiva aceptado y encolado
+          description: Bulk creation job accepted and enqueued
           content:
             application/json:
               schema:
@@ -111,12 +111,12 @@ paths:
     get:
       tags: [bulk]
       operationId: getBulkJobStatus
-      summary: Consultar el estado de un job de creación masiva
+      summary: Check the status of a bulk creation job
       parameters:
         - $ref: "#/components/parameters/JobIdPathParam"
       responses:
         "200":
-          description: Estado actual del job
+          description: Current job status
           content:
             application/json:
               schema:
@@ -130,12 +130,12 @@ paths:
     delete:
       tags: [urls]
       operationId: deleteUrl
-      summary: Revocar (desactivar) una URL corta propia
+      summary: Revoke (deactivate) one of your own short URLs
       parameters:
         - $ref: "#/components/parameters/ShortCodePathParam"
       responses:
         "204":
-          description: URL revocada
+          description: URL revoked
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -147,12 +147,12 @@ paths:
     get:
       tags: [urls]
       operationId: getUrlAnalytics
-      summary: Métricas agregadas de clics para una URL propia
+      summary: Aggregated click metrics for one of your own URLs
       parameters:
         - $ref: "#/components/parameters/ShortCodePathParam"
       responses:
         "200":
-          description: Métricas agregadas
+          description: Aggregated metrics
           content:
             application/json:
               schema:
@@ -171,8 +171,8 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: >
-        Token OIDC emitido por Keycloak. Los servicios V2 actúan como OAuth2 Resource
-        Server (ver ARCHITECTURE.md, sección 5) — no validan credenciales por su cuenta.
+        OIDC token issued by Keycloak. The V2 services act as an OAuth2 Resource
+        Server (see ARCHITECTURE.md, section 5) — they do not validate credentials on their own.
 
   parameters:
     ShortCodePathParam:
@@ -192,25 +192,25 @@ components:
 
   responses:
     BadRequest:
-      description: Solicitud inválida
+      description: Invalid request
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     Unauthorized:
-      description: Token ausente o inválido
+      description: Missing or invalid token
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     Forbidden:
-      description: El recurso existe pero no pertenece al usuario autenticado
+      description: The resource exists but does not belong to the authenticated user
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     NotFound:
-      description: Recurso no encontrado
+      description: Resource not found
       content:
         application/json:
           schema:
@@ -220,9 +220,9 @@ components:
     RedirectRule:
       type: object
       description: >
-        Redirección condicional simple por tipo de dispositivo (ver ARCHITECTURE.md,
-        sección 6, Escenario C — "inteligente" se desambiguó como esto, deliberadamente
-        acotado en vez de un motor de reglas genérico).
+        Simple conditional redirect by device type (see ARCHITECTURE.md,
+        section 6, Scenario C — "smart" was disambiguated as this, deliberately
+        scoped down instead of a generic rules engine).
       required: [deviceType, targetUrl]
       properties:
         deviceType:
@@ -243,7 +243,7 @@ components:
           type: string
           nullable: true
           pattern: '^[0-9A-Za-z_-]{3,20}$'
-          description: Alias elegido por el usuario; si se omite, se genera con Base62.
+          description: Alias chosen by the user; if omitted, one is generated with Base62.
         expiresAt:
           type: string
           format: date-time
@@ -367,7 +367,7 @@ components:
           format: int64
         clicksByDay:
           type: object
-          description: Mapa fecha (YYYY-MM-DD) -> cantidad de clics ese día
+          description: Map of date (YYYY-MM-DD) -> number of clicks that day
           additionalProperties:
             type: integer
         topReferrers:

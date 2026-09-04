@@ -29,7 +29,7 @@ class Base62CodeGeneratorTest {
         AtomicInteger callCount = new AtomicInteger();
         Set<String> seen = new HashSet<>();
 
-        // Las primeras 3 llamadas "colisionan"; la 4ta encuentra un codigo libre.
+        // The first 3 calls "collide"; the 4th finds a free code.
         String code = generator.generate(candidate -> {
             seen.add(candidate);
             return callCount.getAndIncrement() < 3;
@@ -42,8 +42,8 @@ class Base62CodeGeneratorTest {
 
     @Test
     void generate_fallsBackToLongerCodeWhenShortLengthIsExhausted() {
-        // Simula que TODOS los codigos de longitud 7 (INITIAL_LENGTH) ya existen, forzando
-        // el fallback a longitud 8.
+        // Simulates that ALL codes of length 7 (INITIAL_LENGTH) already exist, forcing
+        // the fallback to length 8.
         String code = generator.generate(candidate -> candidate.length() == 7);
 
         assertThat(code).hasSize(8);

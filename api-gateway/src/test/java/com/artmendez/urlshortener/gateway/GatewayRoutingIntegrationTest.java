@@ -17,10 +17,10 @@ import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifica el enrutamiento real del Gateway usando un servidor HTTP fake como backend V1
- * (com.sun.net.httpserver.HttpServer, ya incluido en el JDK, para no agregar una dependencia
- * de mocking HTTP solo para esta prueba). El fake responde con la ruta que recibio, asi
- * confirmamos que el Gateway reenvia la ruta correcta al backend correcto.
+ * Verifies the Gateway's actual routing using a fake HTTP server as the V1 backend
+ * (com.sun.net.httpserver.HttpServer, already included in the JDK, to avoid adding an HTTP
+ * mocking dependency just for this test). The fake responds with the path it received, so
+ * we confirm the Gateway forwards the correct path to the correct backend.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class GatewayRoutingIntegrationTest {

@@ -27,9 +27,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Prueba end-to-end (Tarea #6) de que V1 publica un evento de clic real a RabbitMQ en cada
- * redireccion exitosa. Usa contenedores reales de Postgres y RabbitMQ (Testcontainers), no mocks
- * — coherente con el resto de la suite de integracion del proyecto.
+ * End-to-end test (Task #6) verifying that V1 publishes a real click event to RabbitMQ on every
+ * successful redirect. Uses real Postgres and RabbitMQ containers (Testcontainers), not mocks
+ * — consistent with the rest of the project's integration suite.
  */
 @Testcontainers
 @SpringBootTest(classes = V1LegacyMonolithApplication.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK)
@@ -41,11 +41,11 @@ class ClickEventPublishingIntegrationTest {
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
 
-    // El usuario "guest" por defecto de RabbitMQ solo puede conectarse desde loopback real
-    // (restriccion loopback_users). Una conexion via el puerto mapeado de Testcontainers no se ve
-    // como loopback desde la perspectiva del broker, asi que "guest" falla el handshake AMQP con
-    // un IOException de bajo nivel (no un error de autenticacion limpio). Se crea un usuario
-    // dedicado sin esa restriccion, en vez de usar las credenciales por defecto.
+    // RabbitMQ's default "guest" user can only connect from real loopback (loopback_users
+    // restriction). A connection through Testcontainers' mapped port does not look like
+    // loopback from the broker's perspective, so "guest" fails the AMQP handshake with a
+    // low-level IOException (not a clean authentication error). A dedicated user without
+    // that restriction is created instead of using the default credentials.
     @Container
     static RabbitMQContainer rabbitmq = new RabbitMQContainer("rabbitmq:3.13-management-alpine")
             .withUser("appuser", "appuser_local");
@@ -74,16 +74,16 @@ class ClickEventPublishingIntegrationTest {
     private UrlRecordRepository repository;
 
     /**
-     * Declara la cola explicitamente antes de cada prueba (idempotente: declarar una cola que ya
-     * existe con las mismas propiedades no falla). V1 en produccion deliberadamente NO la declara
-     * (ver {@code RabbitConfig}) — aqui hace falta para verificar que el mensaje realmente llega
-     * a algun lado, cumpliendo temporalmente el rol que el Analytics Worker (Tarea #7, el
-     * consumidor real) tendra en produccion.
+     * Explicitly declares the queue before each test (idempotent: declaring a queue that already
+     * exists with the same properties does not fail). V1 in production deliberately does NOT
+     * declare it (see {@code RabbitConfig}) — here it is needed to verify that the message
+     * actually arrives somewhere, temporarily fulfilling the role that the Analytics Worker
+     * (Task #7, the real consumer) will play in production.
      *
-     * <p>Nota: un bean {@code Queue} dentro de un {@code @TestConfiguration} anidado NO se
-     * auto-declara aqui porque {@code @SpringBootTest(classes = ...)} usa una configuracion
-     * explicita, lo cual desactiva la auto-deteccion de clases de configuracion anidadas de
-     * Spring Boot Test. Declarar imperativamente via {@code RabbitAdmin} evita esa ambiguedad.
+     * <p>Note: a {@code Queue} bean inside a nested {@code @TestConfiguration} is NOT
+     * auto-declared here because {@code @SpringBootTest(classes = ...)} uses explicit
+     * configuration, which disables Spring Boot Test's auto-detection of nested configuration
+     * classes. Declaring it imperatively via {@code RabbitAdmin} avoids that ambiguity.
      */
     @BeforeEach
     void declareClickEventsQueue() {

@@ -39,8 +39,8 @@ services:
       timeout: 10s
       retries: 10
 
-  # Keycloak arranca en modo dev. El realm de la app (clientes OIDC, usuario de prueba) se agrega
-  # en el Día 2 vía infra/keycloak/realm-export.json — por ahora este directorio está vacío a propósito.
+  # Keycloak starts in dev mode. The app's realm (OIDC clients, test user) is added
+  # on Day 2 via infra/keycloak/realm-export.json — for now this directory is intentionally empty.
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     command: start-dev --import-realm

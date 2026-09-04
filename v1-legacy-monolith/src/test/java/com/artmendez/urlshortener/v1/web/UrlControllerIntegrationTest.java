@@ -21,8 +21,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Test end-to-end del Monolito V1 usando Testcontainers (Postgres real, no H2) para validar
- * el flujo completo: crear URL -> Liquibase aplica el esquema -> persistir -> redirigir.
+ * End-to-end test of Monolith V1 using Testcontainers (real Postgres, not H2) to validate
+ * the full flow: create URL -> Liquibase applies the schema -> persist -> redirect.
  */
 @Testcontainers
 @SpringBootTest(classes = V1LegacyMonolithApplication.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK)

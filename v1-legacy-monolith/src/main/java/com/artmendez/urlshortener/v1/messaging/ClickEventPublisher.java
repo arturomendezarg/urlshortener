@@ -7,14 +7,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Publica eventos de clic a RabbitMQ de forma "fire-and-forget" (ver ARCHITECTURE.md, seccion 8,
- * tabla de riesgos: "Perdida silenciosa de eventos de clic si RabbitMQ esta caido al publicar" —
- * riesgo aceptado explicitamente, no un descuido).
+ * Publishes click events to RabbitMQ in a "fire-and-forget" fashion (see ARCHITECTURE.md,
+ * section 8, risk table: "Silent loss of click events if RabbitMQ is down when publishing" —
+ * an explicitly accepted risk, not an oversight).
  *
- * <p>Contrato explicito: {@link #publish(ClickEvent)} NUNCA propaga una excepcion. Si el broker
- * esta caido, inalcanzable, o cualquier otro fallo de mensajeria ocurre, se registra un warning
- * y se retorna normalmente. La redireccion al usuario (el camino critico) no debe depender en
- * absoluto de la disponibilidad de RabbitMQ.
+ * <p>Explicit contract: {@link #publish(ClickEvent)} NEVER propagates an exception. If the
+ * broker is down, unreachable, or any other messaging failure occurs, a warning is logged and
+ * the method returns normally. The redirect to the user (the critical path) must not depend
+ * on RabbitMQ's availability in any way.
  */
 @Component
 public class ClickEventPublisher {
@@ -24,12 +24,12 @@ public class ClickEventPublisher {
     private final AmqpTemplate amqpTemplate;
     private final String queueName;
 
-    // Se depende de la interfaz AmqpTemplate (no de la clase concreta RabbitTemplate): Spring
-    // igual inyecta el RabbitTemplate auto-configurado (implementa AmqpTemplate), y programar
-    // contra la interfaz evita el hallazgo de SpotBugs EI_EXPOSE_REP2 ("puede exponer
-    // representacion interna") que se dispara al guardar una clase concreta mutable recibida
-    // por constructor - la misma razon por la que los repositorios de Spring Data (interfaces)
-    // en otras clases de este proyecto nunca lo disparan.
+    // We depend on the AmqpTemplate interface (not the concrete RabbitTemplate class): Spring
+    // still injects the auto-configured RabbitTemplate (it implements AmqpTemplate), and coding
+    // against the interface avoids the SpotBugs EI_EXPOSE_REP2 finding ("may expose internal
+    // representation") triggered by storing a mutable concrete class received via the
+    // constructor - the same reason the Spring Data repositories (interfaces) in other classes
+    // of this project never trigger it.
     public ClickEventPublisher(
             AmqpTemplate amqpTemplate,
             @Value("${app.messaging.click-events-queue}") String queueName) {
@@ -39,13 +39,13 @@ public class ClickEventPublisher {
 
     public void publish(ClickEvent event) {
         try {
-            // Exchange por defecto ("") con routing key = nombre de la cola: no requiere que V1
-            // declare ni conozca ningun exchange, solo el nombre acordado de la cola.
+            // Default exchange ("") with routing key = queue name: this does not require V1 to
+            // declare or know about any exchange, only the agreed-upon queue name.
             amqpTemplate.convertAndSend(queueName, event);
         } catch (Exception ex) {
             log.warn(
-                    "No se pudo publicar el evento de clic para el short code '{}' "
-                            + "(fire-and-forget, la redireccion continua normalmente): {}",
+                    "Could not publish the click event for short code '{}' "
+                            + "(fire-and-forget, the redirect continues normally): {}",
                     event.shortCode(),
                     ex.getMessage());
         }

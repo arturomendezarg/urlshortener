@@ -8,11 +8,11 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 /**
- * Stub temporal para {@code /api/v2/**}: el servicio V2 (microservicios) todavia no existe
- * (arranca en la Tarea #4, escenario Greenfield, ver ARCHITECTURE.md seccion 6). En vez de
- * dejar que el Gateway devuelva un 404 generico sin contexto para estas rutas, este stub
- * responde 501 con un mensaje explicito. Se elimina cuando el Gateway enrute de verdad hacia
- * los microservicios V2 reales.
+ * Temporary stub for {@code /api/v2/**}: the V2 service (microservices) does not exist yet
+ * (it starts in Task #4, Greenfield scenario, see ARCHITECTURE.md section 6). Instead of
+ * letting the Gateway return a generic, context-free 404 for these routes, this stub
+ * responds with a 501 and an explicit message. It is removed once the Gateway actually
+ * routes to the real V2 microservices.
  */
 @RestController
 public class V2StubController {
@@ -22,8 +22,8 @@ public class V2StubController {
         return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
                 .body(Map.of(
                         "message",
-                        "V2 aun no implementado. Ver ARCHITECTURE.md, seccion 6 (Escenario A) "
-                                + "y seccion 7 (plan dia a dia)."
+                        "V2 not implemented yet. See ARCHITECTURE.md, section 6 (Scenario A) "
+                                + "and section 7 (day-by-day plan)."
                 ));
     }
 }
