@@ -1,7 +1,12 @@
 {
   "name": "URL Shortener - Dev Environment",
-  "image": "mcr.microsoft.com/devcontainers/java:1-17-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
   "features": {
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "17",
+      "installMaven": "true",
+      "installGradle": "false"
+    },
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
