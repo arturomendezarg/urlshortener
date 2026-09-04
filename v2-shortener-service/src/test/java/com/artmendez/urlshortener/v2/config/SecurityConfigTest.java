@@ -45,19 +45,22 @@ class SecurityConfigTest {
     @MockBean
     private ShortLinkService shortLinkService;
 
+    // Deliberately NOT "/api/v2/urls": Task #9 mapped POST there, and Spring MVC replies 405
+    // (not 404) to a GET on a path mapped for a different HTTP method. This path has no mapping
+    // for any method at all, so it stays a valid stand-in for "unmapped, but past security".
+    private static final String UNMAPPED_PATH = "/api/v2/urls/diagnostic-not-mapped";
+
     @Test
     void rejectsAnUnauthenticatedRequest() throws Exception {
-        mockMvc.perform(get("/api/v2/urls")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(UNMAPPED_PATH)).andExpect(status().isUnauthorized());
     }
 
     @Test
     void letsAnAuthenticatedRequestThroughSecurity() throws Exception {
         // 404, not 401/403: authentication clears security and reaches DispatcherServlet, which
-        // has no GET handler mapped at "/api/v2/urls" -- Task #9 only added POST there (create)
-        // plus the public GET /{shortCode} redirect, so GET /api/v2/urls ("listUrls" in the
-        // OpenAPI contract) is still unmapped and remains a valid stand-in path here. Same
-        // reasoning as KeycloakResourceServerIntegrationTest, just with a mocked authentication
-        // instead of a real token from a real Keycloak.
-        mockMvc.perform(get("/api/v2/urls").with(jwt())).andExpect(status().isNotFound());
+        // has no handler mapped at this path at all. Same reasoning as
+        // KeycloakResourceServerIntegrationTest, just with a mocked authentication instead of a
+        // real token from a real Keycloak.
+        mockMvc.perform(get(UNMAPPED_PATH).with(jwt())).andExpect(status().isNotFound());
     }
 }

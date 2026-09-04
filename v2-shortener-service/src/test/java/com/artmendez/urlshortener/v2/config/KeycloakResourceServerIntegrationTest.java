@@ -73,11 +73,13 @@ class KeycloakResourceServerIntegrationTest {
     private static final String REALM = "urlshortener";
     private static final String CLIENT_ID = "url-shortener-v2";
 
-    // GET /api/v2/urls ("listUrls" in the OpenAPI contract) is still not implemented even after
-    // Task #9, which only added POST /api/v2/urls (create) and the public GET /{shortCode}
-    // redirect -- so a GET here still has no handler, and remains a valid stand-in path to
-    // exercise the security filter chain without depending on any business behavior.
-    private static final String UNIMPLEMENTED_V2_ENDPOINT = "/api/v2/urls";
+    // Deliberately NOT "/api/v2/urls": Task #9 mapped POST there, and Spring MVC replies 405
+    // (not 404) to a GET on a path that IS mapped for a different HTTP method -- a real gap in
+    // the reasoning this constant used to document, caught by CI (see AI_USAGE_LOG.md). This
+    // path has no mapping for any method at all (none of "listUrls"/"deleteUrl"/"getUrlAnalytics"
+    // from the OpenAPI contract are implemented yet), so it stays a valid stand-in to exercise
+    // the security filter chain without depending on any business behavior.
+    private static final String UNIMPLEMENTED_V2_ENDPOINT = "/api/v2/urls/diagnostic-not-mapped";
 
     private static String testUsername;
     private static String testPassword;
@@ -183,9 +185,8 @@ class KeycloakResourceServerIntegrationTest {
                 String.class);
 
         // 404, not 401/403: the token cleared security and reached DispatcherServlet, which has
-        // no GET handler mapped at this path (only POST, added in Task #9). That is exactly what
-        // proves the token was valid -- an invalid or missing token would still be rejected with
-        // 401 at this same URL.
+        // no handler mapped at this path at all. That is exactly what proves the token was valid
+        // -- an invalid or missing token would still be rejected with 401 at this same URL.
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 }

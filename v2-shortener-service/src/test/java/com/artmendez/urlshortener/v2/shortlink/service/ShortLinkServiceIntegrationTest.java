@@ -35,7 +35,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * JUnit does not guarantee method execution order.
  */
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+// WebEnvironment.NONE (used by analytics-worker's own Testcontainers tests) does not work
+// here: it sets spring.main.web-application-type=none, which skips the servlet-specific
+// auto-configuration that SecurityConfig's SecurityFilterChain bean (built from HttpSecurity)
+// needs, so the context fails to start at all. MOCK is the lightest environment that still
+// boots a real (mock) servlet web application context; a real HTTP call is never made here
+// since this test talks to ShortLinkService directly.
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 class ShortLinkServiceIntegrationTest {
 
     @Container
