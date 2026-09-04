@@ -2,17 +2,9 @@
   "name": "URL Shortener - Dev Environment",
   "image": "mcr.microsoft.com/devcontainers/java:1-17-bullseye",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
-      "version": "latest",
-      "helm": "latest",
-      "minikube": "none"
-    }
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-  // kind no tiene una feature oficial estable en el catálogo de devcontainers al momento de escribir esto,
-  // así que se instala el binario directamente (release oficial de kind). No verificado en una ejecución
-  // real de Codespaces todavía — revisar si la versión pineada sigue vigente al usarlo.
-  "postCreateCommand": "curl -Lo /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-$(dpkg --print-architecture) && chmod +x /usr/local/bin/kind && kind version",
+  "postCreateCommand": "bash .devcontainer/setup.sh",
   "forwardPorts": [5432, 6379, 5672, 15672, 8081],
   "portsAttributes": {
     "15672": { "label": "RabbitMQ Management UI" },
