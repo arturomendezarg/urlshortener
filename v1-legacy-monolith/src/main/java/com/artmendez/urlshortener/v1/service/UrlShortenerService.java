@@ -15,6 +15,10 @@ import java.time.OffsetDateTime;
  * que se implementara para V2 (ver ARCHITECTURE.md, seccion 6, Escenario A / Tarea #4). Esta
  * simplicidad es intencional: V1 representa el sistema "legacy" tal como fue construido antes
  * del rediseno, no la solucion ideal.
+ *
+ * <p>Escenario Brownfield (Tarea #5): {@code createShortUrl(String)} se preserva sin cambios
+ * (delega con {@code expiresAt = null}, es decir "nunca expira") y {@code resolve} ahora
+ * verifica expiracion antes de devolver el registro.
  */
 @Service
 public class UrlShortenerService {
@@ -31,14 +35,22 @@ public class UrlShortenerService {
     }
 
     public UrlRecord createShortUrl(String longUrl) {
+        return createShortUrl(longUrl, null);
+    }
+
+    public UrlRecord createShortUrl(String longUrl, OffsetDateTime expiresAt) {
         String shortCode = generateUniqueCode();
-        UrlRecord record = new UrlRecord(shortCode, longUrl, OffsetDateTime.now());
+        UrlRecord record = new UrlRecord(shortCode, longUrl, OffsetDateTime.now(), expiresAt);
         return repository.save(record);
     }
 
     public UrlRecord resolve(String shortCode) {
-        return repository.findByShortCode(shortCode)
+        UrlRecord record = repository.findByShortCode(shortCode)
                 .orElseThrow(() -> new ShortCodeNotFoundException(shortCode));
+        if (record.isExpired(OffsetDateTime.now())) {
+            throw new UrlExpiredException(shortCode);
+        }
+        return record;
     }
 
     private String generateUniqueCode() {
