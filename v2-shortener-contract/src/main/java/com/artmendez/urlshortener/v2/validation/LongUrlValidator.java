@@ -1,4 +1,4 @@
-package com.artmendez.urlshortener.v2.shortlink.service;
+package com.artmendez.urlshortener.v2.validation;
 
 import java.net.InetAddress;
 import java.net.URI;
@@ -12,6 +12,14 @@ import java.util.Set;
  * (ARCHITECTURE.md, section 5): only {@code http}/{@code https} are allowed schemes, and hosts
  * that resolve to an internal/private address are rejected, including the well-known cloud
  * metadata endpoint (169.254.169.254, covered by the link-local range check below).
+ *
+ * <p>Moved here from {@code v2-shortener-service} in Day 3, Task #10 (Bulk Processor): this
+ * validation is not specific to the synchronous create endpoint, and the Bulk Processor module
+ * needs the exact same rule applied to every line of a bulk submission — duplicating it would
+ * risk the two services silently drifting on what counts as a safe URL. It lives in
+ * v2-shortener-contract alongside {@link com.artmendez.urlshortener.v2.codec.Base62CodeGenerator}
+ * for the same reason that class does: framework-free domain logic shared by more than one V2
+ * runtime service.
  *
  * <p>Scheme is checked before host presence/resolution, deliberately: an opaque URI like
  * {@code javascript:alert(1)} or {@code mailto:someone@example.com} has no host at all, and the
