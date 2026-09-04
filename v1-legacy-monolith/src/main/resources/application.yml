@@ -14,6 +14,19 @@ spring:
     open-in-view: false
   liquibase:
     change-log: classpath:db/changelog/changelog-master.xml
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    # Falla rapido si el broker no esta disponible, en vez de bloquear el hilo de redireccion
+    # esperando el timeout por defecto del cliente AMQP (ver ClickEventPublisher: fire-and-forget,
+    # nunca debe impedir que la redireccion responda).
+    connection-timeout: 2000
+
+app:
+  messaging:
+    click-events-queue: click-events
 
 management:
   endpoints:

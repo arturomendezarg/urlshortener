@@ -1,9 +1,12 @@
 package com.artmendez.urlshortener.v1.web;
 
 import com.artmendez.urlshortener.v1.domain.UrlRecord;
+import com.artmendez.urlshortener.v1.messaging.ClickEvent;
+import com.artmendez.urlshortener.v1.messaging.ClickEventPublisher;
 import com.artmendez.urlshortener.v1.service.ShortCodeNotFoundException;
 import com.artmendez.urlshortener.v1.service.UrlExpiredException;
 import com.artmendez.urlshortener.v1.service.UrlShortenerService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -31,9 +34,11 @@ import java.time.OffsetDateTime;
 public class UrlController {
 
     private final UrlShortenerService service;
+    private final ClickEventPublisher clickEventPublisher;
 
-    public UrlController(UrlShortenerService service) {
+    public UrlController(UrlShortenerService service, ClickEventPublisher clickEventPublisher) {
         this.service = service;
+        this.clickEventPublisher = clickEventPublisher;
     }
 
     @PostMapping("/api/v1/urls")
@@ -45,8 +50,18 @@ public class UrlController {
     }
 
     @GetMapping("/{shortCode}")
-    public ResponseEntity<Void> redirect(@PathVariable("shortCode") String shortCode) {
+    public ResponseEntity<Void> redirect(
+            @PathVariable("shortCode") String shortCode, HttpServletRequest request) {
         UrlRecord record = service.resolve(shortCode);
+        // Solo se publica el evento de clic para una redireccion exitosa: si resolve() lanza
+        // (404 o 410), esta linea nunca se alcanza y no se cuenta un clic invalido.
+        clickEventPublisher.publish(new ClickEvent(
+                record.getShortCode(),
+                "v1",
+                OffsetDateTime.now(),
+                request.getRemoteAddr(),
+                request.getHeader(HttpHeaders.USER_AGENT),
+                request.getHeader(HttpHeaders.REFERER)));
         return ResponseEntity.status(HttpStatus.MOVED_PERMANENTLY)
                 .header(HttpHeaders.LOCATION, record.getLongUrl())
                 .build();
