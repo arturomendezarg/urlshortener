@@ -235,6 +235,20 @@ Esto da trazabilidad continua (no solo 3 ejemplos aislados) para sustentar "dept
 
 ---
 
+### 8.2 Secure AI Usage
+
+Controles concretos (no solo declarados — verificados vía la API de GitHub al momento de escribir esto) que acotan qué puede hacer la IA y a qué tiene acceso:
+
+- **Sin credenciales reales jamás:** todas las contraseñas de Postgres/RabbitMQ/Keycloak en `docker-compose.yml` son valores de desarrollo local inventados (`urlshortener_local`, `admin_local`), con default en el propio archivo — no hay secreto real que proteger en este ejercicio. `.env` está en `.gitignore` (con excepción explícita de `.env.example`, que solo tiene placeholders) para que el patrón sea correcto igual, por si en algún punto se usa un valor real. `*.pem` y `*.key` también están excluidos.
+- **Sin acceso a infraestructura de producción:** la IA nunca recibió credenciales de GCP ni de ningún proveedor cloud real — el despliegue a Kubernetes es local (kind/k3d en Codespaces), y GKE queda como *roadmap documentado*, no ejecutado (ver sección 9). El blast radius de cualquier error o mal uso de la IA está acotado a un entorno descartable.
+- **Entorno de ejecución de la IA con red restringida:** el sandbox donde corre la IA en esta sesión tiene una allowlist de red angosta (en la práctica, ni siquiera pudo alcanzar Maven Central para compilar localmente — ver AI_USAGE_LOG.md). No es una medida que se configuró específicamente para este proyecto, pero es una capa de contención real que vale la pena declarar: la IA no puede exfiltrar datos ni alcanzar endpoints arbitrarios de internet desde su propio entorno de trabajo.
+- **Escaneo de secretos (`gitleaks`) en cada PR:** guardrail automático específicamente contra el escenario "la IA commitea una credencial por error" — corre en CI desde el primer PR del repo, antes incluso de que existiera código Java.
+- **Escaneo de dependencias (Dependabot):** cualquier librería que la IA proponga agregar al `pom.xml` queda bajo vigilancia continua de vulnerabilidades conocidas, no solo confianza ciega en que "la IA eligió una versión razonable" (ver sección 11).
+- **Cero bypass de administrador, verificado:** `enforce_admins: true` en la protección de `main` — confirmado vía `GET /repos/.../branches/main/protection`, no solo documentado de palabra. Ni siquiera el dueño del repo puede saltarse el flujo de PR + revisión + CI en verde. Combinado con `required_approving_review_count: 1` y `dismiss_stale_reviews: true` (cualquier commit nuevo sobre un PR ya aprobado — como los fixes post-CI de este mismo día — invalida la aprobación anterior y exige una nueva revisión), el único camino para que un cambio generado por `art-claude-dev` llegue a `main` es que `artmendezarg` lo revise activamente cada vez.
+- **Least privilege en el token del bot:** el token de `art-claude-dev` tiene scopes `repo`, `read:org`, `workflow` — necesarios para abrir PRs y pushear a `.github/workflows/`, pero sin `admin:org` ni permisos de administración del repo (confirmado: `admin: false` en los permisos de colaborador de esa cuenta). No puede cambiar branch protection, borrar el repo, ni gestionar otros colaboradores.
+
+---
+
 ## 9. Setup Instructions
 
 **Entorno recomendado: GitHub Codespaces**
