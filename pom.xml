@@ -50,7 +50,7 @@
         <artifactId>maven-checkstyle-plugin</artifactId>
         <version>3.3.1</version>
         <configuration>
-          <configLocation>${maven.multiModuleProjectDirectory}/checkstyle.xml</configLocation>
+          <configLocation>../checkstyle.xml</configLocation>
           <consoleOutput>true</consoleOutput>
           <failOnViolation>true</failOnViolation>
           <violationSeverity>error</violationSeverity>
