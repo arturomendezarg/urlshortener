@@ -41,8 +41,14 @@ class ClickEventPublishingIntegrationTest {
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
 
+    // El usuario "guest" por defecto de RabbitMQ solo puede conectarse desde loopback real
+    // (restriccion loopback_users). Una conexion via el puerto mapeado de Testcontainers no se ve
+    // como loopback desde la perspectiva del broker, asi que "guest" falla el handshake AMQP con
+    // un IOException de bajo nivel (no un error de autenticacion limpio). Se crea un usuario
+    // dedicado sin esa restriccion, en vez de usar las credenciales por defecto.
     @Container
-    static RabbitMQContainer rabbitmq = new RabbitMQContainer("rabbitmq:3.13-management-alpine");
+    static RabbitMQContainer rabbitmq = new RabbitMQContainer("rabbitmq:3.13-management-alpine")
+            .withUser("appuser", "appuser_local");
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
