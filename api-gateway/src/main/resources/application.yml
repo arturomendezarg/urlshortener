@@ -1,0 +1,15 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 5s
+
+app:
+  v1-legacy-monolith:
+    base-url: ${V1_LEGACY_MONOLITH_URL:http://localhost:8080}
