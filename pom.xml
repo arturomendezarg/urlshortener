@@ -28,6 +28,7 @@
   <modules>
     <module>v1-legacy-monolith</module>
     <module>api-gateway</module>
+    <module>v2-shortener-contract</module>
   </modules>
 
 </project>

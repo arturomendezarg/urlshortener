@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.artmendez.urlshortener</groupId>
+    <artifactId>url-shortener-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>v2-shortener-contract</artifactId>
+  <packaging>jar</packaging>
+  <name>V2 Shortener - Contrato + Generador Base62</name>
+  <description>
+    Arranque del escenario Greenfield (Dia 1, Tarea #4, ver ARCHITECTURE.md seccion 6,
+    Escenario A). Contiene el contrato OpenAPI de la API V2 (documentacion pura, sin
+    implementacion todavia) y el generador de codigos Base62 con manejo de colisiones
+    (reintento + fallback a mayor longitud), como pieza de dominio independiente y testeable
+    antes de que exista el resto del Shortener Service V2 (persistencia, Redis, OAuth2/OIDC),
+    que se construye en el Dia 2.
+  </description>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>v2-shortener-contract</finalName>
+  </build>
+
+</project>
