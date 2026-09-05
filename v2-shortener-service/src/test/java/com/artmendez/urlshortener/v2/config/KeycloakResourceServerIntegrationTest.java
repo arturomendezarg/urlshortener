@@ -21,6 +21,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -65,6 +66,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * these particular test methods. Redis uses a plain {@code GenericContainer} with the same
  * {@code redis:7-alpine} image as docker-compose, mirroring the pattern already used for
  * Keycloak here, rather than pulling in a third-party Testcontainers Redis module.
+ *
+ * <p>Task #10 added {@code spring-boot-starter-amqp} to this module (for {@code
+ * BulkJobPublisher}), which auto-configures a RabbitMQ health contributor into {@code
+ * /actuator/health}. {@link #actuatorHealthIsPubliclyReachableWithNoToken()} asserts that
+ * endpoint is a plain {@code 200}, so this context now needs a reachable broker too, or the
+ * aggregate health rolls up to {@code DOWN} (503) purely because nothing is listening on
+ * {@code localhost:5672} inside the test JVM — not because anything is actually broken. Same
+ * "real infra over mocks" call as Postgres/Redis above, and the same dedicated-user
+ * workaround already used by {@code analytics-worker}'s and {@code bulk-processor}'s own
+ * RabbitMQ integration tests: the default "guest" user cannot authenticate over a
+ * Testcontainers-mapped port (RabbitMQ's {@code loopback_users} restriction).
  */
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -103,6 +115,10 @@ class KeycloakResourceServerIntegrationTest {
     static final GenericContainer<?> REDIS =
             new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
 
+    @Container
+    static final RabbitMQContainer RABBITMQ =
+            new RabbitMQContainer("rabbitmq:3.13-management-alpine").withUser("appuser", "appuser_local");
+
     @BeforeAll
     static void loadTestUserCredentials() throws IOException {
         ObjectMapper mapper = new ObjectMapper();
@@ -122,6 +138,10 @@ class KeycloakResourceServerIntegrationTest {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.data.redis.host", REDIS::getHost);
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+        registry.add("spring.rabbitmq.host", RABBITMQ::getHost);
+        registry.add("spring.rabbitmq.port", RABBITMQ::getAmqpPort);
+        registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
+        registry.add("spring.rabbitmq.password", RABBITMQ::getAdminPassword);
     }
 
     private static String keycloakBaseUrl() {
