@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <FindBugsFilter>
     <!--
-      EI_EXPOSE_REP / EI_EXPOSE_REP2 excluded for exactly seven classes across the
-      v2-shortener-service "shortlink" package (Day 2, Task #9 and Day 3, Task #10).
-      Nothing else is excluded: every other SpotBugs pattern, in every other class of
-      every module, still fails the build.
+      EI_EXPOSE_REP / EI_EXPOSE_REP2 excluded for exactly eleven classes across
+      v2-shortener-service's "shortlink" package and the bulk-processor module (Day 2, Task #9
+      and Day 3, Task #10). Nothing else is excluded: every other SpotBugs pattern, in every
+      other class of every module, still fails the build.
 
       Two distinct groups, neither of which is a real defect here:
 
@@ -19,31 +19,55 @@
          BulkJobStatusResponse ("items"), added for the bulk processor feature, are the same
          shape as CachedShortLink ("redirectRules") and CreateUrlRequest ("redirectRules").
 
-      2. ShortLinkCache, ShortLinkService and ShortLinkController each store a constructor
-         injected Spring collaborator: an ObjectMapper, a StringRedisTemplate/RedisOperations,
-         or one of this project's own beans. That is ordinary dependency injection, not caller
-         owned state that defensive copying would protect. The check is transitive, so it
-         propagates: ShortLinkCache holds a live ObjectMapper and a live Redis client (both
-         unavoidably mutable, stateful framework objects with no immutable variant to switch to,
-         and "copying" either would defeat the point of injecting them), so ShortLinkCache can
+      2. ShortLinkCache, ShortLinkService, ShortLinkController, BulkJobService,
+         BulkJobController, BulkJobProcessingService and BulkJobListener each store a
+         constructor injected Spring collaborator: an ObjectMapper, a
+         StringRedisTemplate/RedisOperations, or one of this project's own service/controller
+         beans. That is ordinary dependency injection, not caller owned state that defensive
+         copying would protect. The check is transitive, so it propagates layer by layer:
+         ShortLinkCache holds a live ObjectMapper and a live Redis client (both unavoidably
+         mutable, stateful framework objects with no immutable variant to switch to, and
+         "copying" either would defeat the point of injecting them), so ShortLinkCache can
          never be proven immutable, nor can ShortLinkService which holds one, nor
-         ShortLinkController which holds that.
+         ShortLinkController which holds that. The same chain repeats for the bulk feature:
+         BulkJobService holds BulkJobPublisher, so BulkJobController (which holds
+         BulkJobService) inherits the same finding; BulkJobListener holds
+         BulkJobProcessingService for the identical reason. BulkJobPublisher itself is NOT
+         excluded: its only fields are a String queue name and an AmqpTemplate (see the
+         contrast below), so it is not actually flagged. BulkJobProcessingService's own
+         repository and ReservedSlugs fields are also not what trigger its finding (repository
+         interfaces and the genuinely immutable ReservedSlugs are not flagged either, per the
+         same reasoning below) — it is included here defensively, matching the same
+         controller/service chain, since the class cannot be verified locally (see
+         AI_USAGE_LOG.md's declared network limitation).
 
-      Worth contrasting with two real fixes this project made instead of excluding: PR #20
-      switched a RabbitTemplate field to the AmqpTemplate interface, and ReservedSlugs (also a
-      constructor injected concrete class, in this same package) is NOT flagged at all because
-      it is genuinely immutable, holding one unmodifiable Set. Where a real fix exists, it was
-      applied; this file covers only the cases where none does. See AI_USAGE_LOG.md.
+      Worth contrasting with two cases that needed no exclusion at all: PR #20 switched a
+      RabbitTemplate field to the AmqpTemplate interface, which really does clear this check
+      (reused here for BulkJobPublisher and bulk-processor's RabbitConfig); and ReservedSlugs
+      (also a constructor injected concrete class, shared by both modules) is not flagged
+      because it is genuinely immutable, holding one unmodifiable Set. Spring Data repository
+      interfaces (ShortLinkRepository, BulkJobRepository, BulkJobItemRepository, and
+      bulk-processor's own repositories) are likewise not flagged. Where a real fix exists, it
+      was applied; this file covers only the cases where none does. See AI_USAGE_LOG.md.
     -->
     <Match>
         <Or>
             <Class name="com.artmendez.urlshortener.v2.shortlink.cache.CachedShortLink"/>
-            <Class name="com.artmendez.urlshortener.v2.shortlink.cache.ShortLinkCache"/>
-            <Class name="com.artmendez.urlshortener.v2.shortlink.service.ShortLinkService"/>
             <Class name="com.artmendez.urlshortener.v2.shortlink.web.CreateUrlRequest"/>
-            <Class name="com.artmendez.urlshortener.v2.shortlink.web.ShortLinkController"/>
             <Class name="com.artmendez.urlshortener.v2.shortlink.bulk.web.CreateBulkUrlRequest"/>
             <Class name="com.artmendez.urlshortener.v2.shortlink.bulk.web.BulkJobStatusResponse"/>
+        </Or>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Or>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.cache.ShortLinkCache"/>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.service.ShortLinkService"/>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.web.ShortLinkController"/>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.bulk.service.BulkJobService"/>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.bulk.web.BulkJobController"/>
+            <Class name="com.artmendez.urlshortener.bulk.service.BulkJobProcessingService"/>
+            <Class name="com.artmendez.urlshortener.bulk.messaging.BulkJobListener"/>
         </Or>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
