@@ -1,18 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <FindBugsFilter>
     <!--
-      EI_EXPOSE_REP / EI_EXPOSE_REP2 excluded for exactly five classes of the
-      v2-shortener-service "shortlink" package (Day 2, Task #9). Nothing else is excluded:
-      every other SpotBugs pattern, in every other class of every module, still fails the build.
+      EI_EXPOSE_REP / EI_EXPOSE_REP2 excluded for exactly seven classes across the
+      v2-shortener-service "shortlink" package (Day 2, Task #9 and Day 3, Task #10).
+      Nothing else is excluded: every other SpotBugs pattern, in every other class of
+      every module, still fails the build.
 
       Two distinct groups, neither of which is a real defect here:
 
-      1. CachedShortLink and CreateUrlRequest are records whose "redirectRules" component is
-         deserialized by Jackson (from a Redis entry, or from an HTTP request body) into a
-         mutable ArrayList. Both DO defensively copy it (List.copyOf) in a compact constructor,
-         which is the correct fix and is kept regardless of this file; the analysis still cannot
-         prove immutability through a record's auto generated canonical accessor, which returns
-         the field itself and cannot be replaced without giving up what makes it a record.
+      1. CachedShortLink, CreateUrlRequest, CreateBulkUrlRequest and BulkJobStatusResponse
+         are records with a List typed component that is deserialized by Jackson (from a
+         Redis entry, or from an HTTP request body) into a mutable ArrayList, or built to be
+         serialized back out as one. All four DO defensively copy it (List.copyOf) in a
+         compact constructor, which is the correct fix and is kept regardless of this file;
+         the analysis still cannot prove immutability through a record's auto generated
+         canonical accessor, which returns the field itself and cannot be replaced without
+         giving up what makes it a record. CreateBulkUrlRequest ("urls") and
+         BulkJobStatusResponse ("items"), added for the bulk processor feature, are the same
+         shape as CachedShortLink ("redirectRules") and CreateUrlRequest ("redirectRules").
 
       2. ShortLinkCache, ShortLinkService and ShortLinkController each store a constructor
          injected Spring collaborator: an ObjectMapper, a StringRedisTemplate/RedisOperations,
@@ -37,6 +42,8 @@
             <Class name="com.artmendez.urlshortener.v2.shortlink.service.ShortLinkService"/>
             <Class name="com.artmendez.urlshortener.v2.shortlink.web.CreateUrlRequest"/>
             <Class name="com.artmendez.urlshortener.v2.shortlink.web.ShortLinkController"/>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.bulk.web.CreateBulkUrlRequest"/>
+            <Class name="com.artmendez.urlshortener.v2.shortlink.bulk.web.BulkJobStatusResponse"/>
         </Or>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
