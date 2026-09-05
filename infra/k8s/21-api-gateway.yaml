@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: url-shortener
+  labels:
+    app: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: api-gateway:kind
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8082
+          env:
+            - name: V1_LEGACY_MONOLITH_URL
+              value: http://v1-legacy-monolith:8080
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+# NodePort, not ClusterIP: this is the system's documented single entry point (Strangler Fig,
+# ARCHITECTURE.md section 3.1) for /api/v1/** and the public GET /{shortCode} redirect, so it is
+# one of the three services this PR exposes outside the cluster (see infra/k8s/kind-config.yaml).
+# NOT yet a usable entry point for /api/v2/**: GatewayRoutesConfig/V2StubController (unchanged by
+# this PR, see infra/k8s/README.md) still return 501 for that prefix -- a pre-existing gap from
+# Day 1/Task #3 that was never closed once the real V2 service existed, out of scope here. V2
+# traffic is exposed directly against v2-shortener-service instead (see
+# 22-v2-shortener-service.yaml), the same way it is already exercised via Postman/curl today.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: url-shortener
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - port: 8082
+      targetPort: 8082
+      nodePort: 30082
+  type: NodePort

@@ -1,0 +1,31 @@
+# kind cluster config (NOT a kubectl-apply-able manifest -- passed to `kind create cluster
+# --config`). Named "url-shortener" to match ARCHITECTURE.md section 9's documented
+# `kind create cluster --name url-shortener`.
+#
+# extraPortMappings map ports on the Codespace host itself to the SAME 3 ports docker-compose.yml
+# and this whole project's Postman collection already use for Keycloak/api-gateway/
+# v2-shortener-service (8081/8082/8084) -- picked deliberately so "point Postman at localhost"
+# needs no new environment, kind or not. Each one targets the fixed nodePort its Service
+# declares (13-keycloak.yaml, 21-api-gateway.yaml, 22-v2-shortener-service.yaml) -- kind has to
+# know these at cluster-creation time; a NodePort cannot be exposed to the host after the fact
+# without recreating the cluster.
+#
+# v1-legacy-monolith, analytics-worker, bulk-processor, and RabbitMQ's management UI are
+# deliberately NOT mapped here: the first three are internal-only in this architecture (see their
+# own Service comments), and RabbitMQ's UI is a nice-to-have a reviewer can reach with
+# `kubectl port-forward svc/rabbitmq 15672:15672 -n url-shortener` on demand instead of
+# permanently reserving a host port for it.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30081
+        hostPort: 8081
+        protocol: TCP
+      - containerPort: 30082
+        hostPort: 8082
+        protocol: TCP
+      - containerPort: 30084
+        hostPort: 8084
+        protocol: TCP

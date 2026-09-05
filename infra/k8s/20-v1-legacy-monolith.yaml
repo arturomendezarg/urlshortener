@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: v1-legacy-monolith
+  namespace: url-shortener
+  labels:
+    app: v1-legacy-monolith
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: v1-legacy-monolith
+  template:
+    metadata:
+      labels:
+        app: v1-legacy-monolith
+    spec:
+      containers:
+        - name: v1-legacy-monolith
+          image: v1-legacy-monolith:kind
+          # This project's own images, built and loaded straight into kind's node by
+          # infra/k8s/deploy-to-kind.sh (never pushed to a registry) -- IfNotPresent would let a
+          # stale image silently survive a rebuild-and-redeploy loop during iteration.
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_DB
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: RABBITMQ_HOST
+              value: rabbitmq
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_PASSWORD
+          # Spring Boot auto-enables the "liveness"/"readiness" health groups at
+          # /actuator/health/{liveness,readiness} once it detects it is running on Kubernetes
+          # (via the KUBERNETES_SERVICE_HOST/PORT env vars the API server injects into every pod
+          # automatically) -- no extra application.yml property needed for this to work, on this
+          # or any of the other four app Deployments below.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: v1-legacy-monolith
+  namespace: url-shortener
+spec:
+  selector:
+    app: v1-legacy-monolith
+  ports:
+    - port: 8080
+      targetPort: 8080

@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bulk-processor
+  namespace: url-shortener
+  labels:
+    app: bulk-processor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bulk-processor
+  template:
+    metadata:
+      labels:
+        app: bulk-processor
+    spec:
+      containers:
+        - name: bulk-processor
+          image: bulk-processor:kind
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8085
+          env:
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
+            # bulk-processor never runs its own Liquibase in production (see its pom.xml's own
+            # comment: liquibase-core is test-only there) -- it assumes v2-shortener-service's
+            # migrations already created bulk_jobs/bulk_job_items/short_links. Both Deployments
+            # point at the same Postgres, so whichever of the two pods' Liquibase-owning startup
+            # finishes first lays down the schema; this is the same "shared database, one
+            # migration owner" shape already exercised whenever this project's services are run
+            # together outside Testcontainers (docker-compose + `mvn spring-boot:run` locally).
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_DB
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: RABBITMQ_HOST
+              value: rabbitmq
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8085
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8085
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+# ClusterIP only -- same reasoning as analytics-worker's Service above: bulk-processor is a
+# bulk-url-jobs consumer, submissions come in through v2-shortener-service's
+# POST /api/v2/urls/bulk, never directly against this pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bulk-processor
+  namespace: url-shortener
+spec:
+  selector:
+    app: bulk-processor
+  ports:
+    - port: 8085
+      targetPort: 8085
