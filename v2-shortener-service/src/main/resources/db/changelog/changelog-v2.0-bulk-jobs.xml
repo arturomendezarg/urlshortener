@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="v2-shortener-service-v2.0-bulk-jobs-table" author="art-claude-dev">
+        <comment>
+            Day 3, Task #10 (Bulk Processor, ARCHITECTURE.md section 4.2 and section 7).
+            bulk_jobs is created and owned by v2-shortener-service (POST /api/v2/urls/bulk
+            inserts the PENDING row synchronously, GET /api/v2/urls/bulk/{jobId} reads it), but
+            bulk-processor also updates status/processed_items/failed_items/completed_at as it
+            consumes the bulk-url-jobs queue — a two-writer table by design, the same "producer
+            creates, consumer updates" shape as a typical job-status table. bulk-processor does
+            NOT carry its own copy of this changelog in its runtime jar (see its pom.xml/Javadoc
+            for why); it only maps a JPA entity onto the table this changelog creates.
+        </comment>
+        <createTable tableName="bulk_jobs">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="owner_user_id" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="total_items" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="processed_items" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="failed_items" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="completed_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </createTable>
+        <createIndex indexName="idx_bulk_jobs_owner_user_id" tableName="bulk_jobs">
+            <column name="owner_user_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="v2-shortener-service-v2.0-bulk-job-items-table" author="art-claude-dev">
+        <comment>
+            Line items of a bulk job (ARCHITECTURE.md, section 4.2). Adds custom_alias beyond
+            the summarized column list in that section: the documented request body
+            (section 4.1, POST /api/v2/urls/bulk) accepts an optional customAlias per line, and
+            bulk-processor needs it persisted per item to honor it during processing — an
+            addition required to fulfil the documented contract, not a scope change.
+        </comment>
+        <createTable tableName="bulk_job_items">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="bulk_job_id" type="BIGINT">
+                <constraints nullable="false" foreignKeyName="fk_bulk_job_items_bulk_job"
+                             references="bulk_jobs(id)"/>
+            </column>
+            <column name="line_index" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="long_url" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="custom_alias" type="VARCHAR(50)"/>
+            <column name="status" type="VARCHAR(30)" defaultValue="PENDING">
+                <constraints nullable="false"/>
+            </column>
+            <column name="short_code" type="VARCHAR(20)"/>
+            <column name="error_message" type="TEXT"/>
+        </createTable>
+        <createIndex indexName="idx_bulk_job_items_bulk_job_id" tableName="bulk_job_items">
+            <column name="bulk_job_id"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>
