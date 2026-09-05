@@ -1,6 +1,8 @@
 package com.artmendez.urlshortener.v2.shortlink.bulk.web;
 
 import com.artmendez.urlshortener.v2.config.SecurityConfig;
+import com.artmendez.urlshortener.v2.ratelimit.RateLimitExceededException;
+import com.artmendez.urlshortener.v2.ratelimit.RateLimiter;
 import com.artmendez.urlshortener.v2.shortlink.bulk.domain.BulkJob;
 import com.artmendez.urlshortener.v2.shortlink.bulk.domain.BulkJobItem;
 import com.artmendez.urlshortener.v2.shortlink.bulk.domain.BulkJobItemStatus;
@@ -18,15 +20,19 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -46,6 +52,9 @@ class BulkJobControllerTest {
 
     @MockBean
     private BulkJobService service;
+
+    @MockBean
+    private RateLimiter rateLimiter;
 
     private BulkJob newJob(String ownerUserId, int totalItems, Long id) {
         BulkJob job = new BulkJob(ownerUserId, totalItems);
@@ -77,6 +86,21 @@ class BulkJobControllerTest {
                 .andExpect(jsonPath("$.jobId").value(42))
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.totalItems").value(2));
+    }
+
+    @Test
+    void submit_whenTheRateLimitIsExceededReturns429WithARetryAfterHeader() throws Exception {
+        doThrow(new RateLimitExceededException(5, Duration.ofSeconds(60), 17L))
+                .when(rateLimiter)
+                .checkLimit(anyString(), anyInt(), any());
+
+        mockMvc.perform(post("/api/v2/urls/bulk")
+                        .with(jwt())
+                        .contentType("application/json")
+                        .content("{\"urls\":[{\"longUrl\":\"https://example.com\"}]}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "17"))
+                .andExpect(jsonPath("$.status").value(429));
     }
 
     @Test

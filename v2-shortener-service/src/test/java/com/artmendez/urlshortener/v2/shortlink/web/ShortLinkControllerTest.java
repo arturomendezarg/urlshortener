@@ -1,6 +1,8 @@
 package com.artmendez.urlshortener.v2.shortlink.web;
 
 import com.artmendez.urlshortener.v2.config.SecurityConfig;
+import com.artmendez.urlshortener.v2.ratelimit.RateLimitExceededException;
+import com.artmendez.urlshortener.v2.ratelimit.RateLimiter;
 import com.artmendez.urlshortener.v2.shortlink.domain.ShortLink;
 import com.artmendez.urlshortener.v2.shortlink.service.DuplicateAliasException;
 import com.artmendez.urlshortener.v2.validation.InvalidLongUrlException;
@@ -18,11 +20,14 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -51,6 +56,9 @@ class ShortLinkControllerTest {
     @MockBean
     private ShortLinkService shortLinkService;
 
+    @MockBean
+    private RateLimiter rateLimiter;
+
     @BeforeEach
     void setUp() {
         ShortLink shortLink = new ShortLink(
@@ -76,6 +84,21 @@ class ShortLinkControllerTest {
                 .andExpect(jsonPath("$.shortCode").value("abc1234"))
                 .andExpect(jsonPath("$.shortUrl").value("http://localhost:8084/abc1234"))
                 .andExpect(jsonPath("$.ownerId").value("user-123"));
+    }
+
+    @Test
+    void create_whenTheRateLimitIsExceededReturns429WithARetryAfterHeader() throws Exception {
+        doThrow(new RateLimitExceededException(30, Duration.ofSeconds(60), 42L))
+                .when(rateLimiter)
+                .checkLimit(anyString(), anyInt(), any());
+
+        mockMvc.perform(post("/api/v2/urls")
+                        .with(jwt())
+                        .contentType("application/json")
+                        .content("{\"longUrl\":\"https://example.com\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "42"))
+                .andExpect(jsonPath("$.status").value(429));
     }
 
     @Test

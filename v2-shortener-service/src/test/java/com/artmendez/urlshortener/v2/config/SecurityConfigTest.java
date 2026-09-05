@@ -1,5 +1,6 @@
 package com.artmendez.urlshortener.v2.config;
 
+import com.artmendez.urlshortener.v2.ratelimit.RateLimiter;
 import com.artmendez.urlshortener.v2.shortlink.bulk.service.BulkJobService;
 import com.artmendez.urlshortener.v2.shortlink.service.ShortLinkService;
 import org.junit.jupiter.api.Test;
@@ -43,12 +44,17 @@ class SecurityConfigTest {
     // their constructors need a ShortLinkService/BulkJobService bean respectively, and this
     // slice does not provide either on its own. Both mocked here purely to let the context
     // load; this test still only exercises SecurityConfig's authorization rules, never either
-    // service's behavior.
+    // service's behavior. Task #11 then added a RateLimiter dependency to BOTH controllers'
+    // constructors, and RateLimiter itself needs a StringRedisTemplate bean unavailable in this
+    // slice -- mocked below for the same reason as the two services above.
     @MockBean
     private ShortLinkService shortLinkService;
 
     @MockBean
     private BulkJobService bulkJobService;
+
+    @MockBean
+    private RateLimiter rateLimiter;
 
     // Deliberately NOT "/api/v2/urls": Task #9 mapped POST there, and Spring MVC replies 405
     // (not 404) to a GET on a path mapped for a different HTTP method. This path has no mapping

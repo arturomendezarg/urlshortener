@@ -1,5 +1,7 @@
 package com.artmendez.urlshortener.v2.shortlink.bulk.web;
 
+import com.artmendez.urlshortener.v2.ratelimit.RateLimitExceededException;
+import com.artmendez.urlshortener.v2.ratelimit.RateLimiter;
 import com.artmendez.urlshortener.v2.shortlink.bulk.domain.BulkJob;
 import com.artmendez.urlshortener.v2.shortlink.bulk.domain.BulkJobItem;
 import com.artmendez.urlshortener.v2.shortlink.bulk.service.BulkJobNotFoundException;
@@ -9,6 +11,8 @@ import com.artmendez.urlshortener.v2.shortlink.web.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.amqp.AmqpException;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -22,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -34,14 +39,25 @@ import java.util.List;
 public class BulkJobController {
 
     private final BulkJobService service;
+    private final RateLimiter rateLimiter;
+    private final int rateLimitPerWindow;
+    private final Duration rateLimitWindow;
 
-    public BulkJobController(BulkJobService service) {
+    public BulkJobController(
+            BulkJobService service,
+            RateLimiter rateLimiter,
+            @Value("${app.ratelimit.bulk-create.limit}") int rateLimitPerWindow,
+            @Value("${app.ratelimit.bulk-create.window-seconds}") long rateLimitWindowSeconds) {
         this.service = service;
+        this.rateLimiter = rateLimiter;
+        this.rateLimitPerWindow = rateLimitPerWindow;
+        this.rateLimitWindow = Duration.ofSeconds(rateLimitWindowSeconds);
     }
 
     @PostMapping
     public ResponseEntity<CreateBulkUrlResponse> submit(
             @Valid @RequestBody CreateBulkUrlRequest request, @AuthenticationPrincipal Jwt jwt) {
+        rateLimiter.checkLimit("ratelimit:bulk-create:" + jwt.getSubject(), rateLimitPerWindow, rateLimitWindow);
         BulkJob job = service.createJob(request.urls(), jwt.getSubject());
         // 202 Accepted, not 201 Created: the resources this request is ABOUT (the short links)
         // do not exist yet, only the job that will create them does.
@@ -75,6 +91,20 @@ public class BulkJobController {
     @ExceptionHandler(BulkJobNotFoundException.class)
     public ResponseEntity<Void> handleNotFound() {
         return ResponseEntity.notFound().build();
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(
+            RateLimitExceededException e, HttpServletRequest request) {
+        ErrorResponse body = new ErrorResponse(
+                OffsetDateTime.now(),
+                HttpStatus.TOO_MANY_REQUESTS.value(),
+                HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(),
+                e.getMessage(),
+                request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(e.getRetryAfterSeconds()))
+                .body(body);
     }
 
     @ExceptionHandler(BulkSubmissionTooLargeException.class)

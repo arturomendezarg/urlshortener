@@ -1,5 +1,7 @@
 package com.artmendez.urlshortener.v2.shortlink.web;
 
+import com.artmendez.urlshortener.v2.ratelimit.RateLimitExceededException;
+import com.artmendez.urlshortener.v2.ratelimit.RateLimiter;
 import com.artmendez.urlshortener.v2.shortlink.domain.ShortLink;
 import com.artmendez.urlshortener.v2.shortlink.service.DuplicateAliasException;
 import com.artmendez.urlshortener.v2.shortlink.service.ReservedSlugException;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 
 /**
@@ -43,17 +46,28 @@ import java.time.OffsetDateTime;
 public class ShortLinkController {
 
     private final ShortLinkService service;
+    private final RateLimiter rateLimiter;
     private final String baseUrl;
+    private final int rateLimitPerWindow;
+    private final Duration rateLimitWindow;
 
     public ShortLinkController(
-            ShortLinkService service, @Value("${app.shortlink.base-url}") String baseUrl) {
+            ShortLinkService service,
+            RateLimiter rateLimiter,
+            @Value("${app.shortlink.base-url}") String baseUrl,
+            @Value("${app.ratelimit.create-url.limit}") int rateLimitPerWindow,
+            @Value("${app.ratelimit.create-url.window-seconds}") long rateLimitWindowSeconds) {
         this.service = service;
+        this.rateLimiter = rateLimiter;
         this.baseUrl = baseUrl;
+        this.rateLimitPerWindow = rateLimitPerWindow;
+        this.rateLimitWindow = Duration.ofSeconds(rateLimitWindowSeconds);
     }
 
     @PostMapping("/api/v2/urls")
     public ResponseEntity<CreateUrlResponse> create(
             @Valid @RequestBody CreateUrlRequest request, @AuthenticationPrincipal Jwt jwt) {
+        rateLimiter.checkLimit("ratelimit:create-url:" + jwt.getSubject(), rateLimitPerWindow, rateLimitWindow);
         ShortLink shortLink = service.create(
                 request.longUrl(),
                 request.customAlias(),
@@ -91,6 +105,20 @@ public class ShortLinkController {
     @ExceptionHandler(ShortLinkExpiredException.class)
     public ResponseEntity<Void> handleExpired() {
         return ResponseEntity.status(HttpStatus.GONE).build();
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleRateLimitExceeded(
+            RateLimitExceededException e, HttpServletRequest request) {
+        ErrorResponse body = new ErrorResponse(
+                OffsetDateTime.now(),
+                HttpStatus.TOO_MANY_REQUESTS.value(),
+                HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(),
+                e.getMessage(),
+                request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(e.getRetryAfterSeconds()))
+                .body(body);
     }
 
     @ExceptionHandler(InvalidLongUrlException.class)
