@@ -21,10 +21,11 @@ Desde cualquier directorio del repo:
 
 Esto: crea el clúster `kind` (si no existe uno con ese nombre), construye las 5 imágenes de la
 aplicación con el `Dockerfile` compartido de la raíz del repo, las carga directamente al nodo de
-`kind` (sin registry intermedio), genera el ConfigMap del realm de Keycloak a partir del mismo
-`infra/keycloak/realm-export.json` que ya usa `docker-compose.yml`, aplica todos los manifiestos
-de este directorio en orden, y espera a que cada `Deployment` quede `available` antes de
-terminar. Es idempotente -- se puede volver a correr después de un cambio de código.
+`kind` (sin registry intermedio), genera los 3 `Secret`s y el `ConfigMap` del realm de Keycloak
+(ver "Credenciales" abajo -- ninguno de los dos vive como YAML committeado con un valor adentro),
+aplica todos los manifiestos de este directorio en orden, y espera a que cada `Deployment` quede
+`available` antes de terminar. Es idempotente -- se puede volver a correr después de un cambio de
+código.
 
 Script alternativo, paso a paso, si se prefiere no correr el script completo:
 
@@ -33,11 +34,38 @@ kind create cluster --name url-shortener --config infra/k8s/kind-config.yaml
 docker build --build-arg MODULE=v2-shortener-service -t v2-shortener-service:kind .
 kind load docker-image v2-shortener-service:kind --name url-shortener
 # ... repetir build+load para v1-legacy-monolith, api-gateway, analytics-worker, bulk-processor
+
+# Secrets: mismos nombres de variable que docker-compose.yml/.env.example, mismo default si no
+# hay override -- ver la sección "Credenciales" abajo.
+kubectl create secret generic postgres-credentials --namespace url-shortener \
+  --from-literal=POSTGRES_DB=urlshortener --from-literal=POSTGRES_USER=urlshortener \
+  --from-literal=POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-urlshortener_local}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic rabbitmq-credentials --namespace url-shortener \
+  --from-literal=RABBITMQ_USER="${RABBITMQ_USER:-urlshortener}" \
+  --from-literal=RABBITMQ_PASSWORD="${RABBITMQ_PASSWORD:-urlshortener_local}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic keycloak-admin-credentials --namespace url-shortener \
+  --from-literal=KEYCLOAK_ADMIN=admin \
+  --from-literal=KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-admin_local}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 kubectl create configmap keycloak-realm-import \
   --from-file=realm-export.json=infra/keycloak/realm-export.json \
   --namespace url-shortener --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f infra/k8s/
 ```
+
+## Credenciales
+
+No hay ningún archivo YAML en este directorio con una contraseña adentro -- los 3 `Secret`s
+(`postgres-credentials`, `rabbitmq-credentials`, `keycloak-admin-credentials`) los genera
+`deploy-to-kind.sh` en el momento del deploy, leyendo las mismas variables de entorno que
+`docker-compose.yml`/`.env.example` ya usan (`POSTGRES_PASSWORD`, `RABBITMQ_USER`,
+`RABBITMQ_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`), con el mismo valor de desarrollo por default si
+no hay override. El script carga `.env` en la raíz del repo automáticamente si existe (nunca
+committeado, ver `.gitignore`) -- copiar `.env.example` a `.env` y cambiar un valor ahí alcanza
+para que se propague igual a `docker-compose` y a `kind`, sin tocar ningún manifiesto.
 
 ## Cómo llegar a los servicios desde fuera del clúster
 
@@ -92,6 +120,11 @@ curl -s http://localhost:8082/api/v1/urls -H 'Content-Type: application/json' \
 
 - **Un solo `Dockerfile` parametrizado** (`ARG MODULE`) en la raíz del repo, en vez de uno por
   módulo -- ver su propio comentario de cabecera.
+- **Ningún `Secret` vive como YAML committeado con un valor adentro** -- los tres se generan en
+  `deploy-to-kind.sh` a partir de variables de entorno (ver "Credenciales" arriba). Una revisión
+  de PR sobre una versión anterior de este directorio señaló justo esto en
+  `KEYCLOAK_ADMIN_PASSWORD`; el detalle de por qué ese cambio importa incluso cuando el valor de
+  por sí nunca fue real está en `AI_USAGE_LOG.md`.
 - **Sin almacenamiento persistente** (Postgres usa `emptyDir`, no una `PersistentVolumeClaim`):
   ya declarado como limitación aceptada en `ARCHITECTURE.md` sección 13 para este clúster local y
   descartable.
@@ -101,7 +134,8 @@ curl -s http://localhost:8082/api/v1/urls -H 'Content-Type: application/json' \
   clúster o un `curl` desde el Codespace.
 - **Namespace propio (`url-shortener`)**: `kubectl delete namespace url-shortener` limpia todo de
   una vez.
-- **Sin Helm ni Kustomize**: 11 manifiestos planos, sin templating -- proporcional al tamaño de
+- **Sin Helm ni Kustomize**: 10 manifiestos `kubectl apply`-ables (más `kind-config.yaml`, que
+  no se aplica con `kubectl`), sin templating -- proporcional al tamaño de
   este ejercicio; un despliegue real (ver el roadmap a GKE en `ARCHITECTURE.md` sección 9)
   justificaría Helm/Kustomize para manejar de verdad múltiples entornos.
 
