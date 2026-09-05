@@ -19,6 +19,11 @@ spring:
     open-in-view: false
   liquibase:
     change-log: classpath:db/changelog/changelog-master.xml
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -40,6 +45,13 @@ app:
     # string-conversion rules applying to @Value the same way they do to @ConfigurationProperties.
     cache-ttl-seconds: 300
     base-url: ${SHORTLINK_BASE_URL:http://localhost:8084}
+    # Hard cap on how many lines a single POST /api/v2/urls/bulk submission may contain
+    # (ARCHITECTURE.md, section 5: rate limiting/abuse mitigation is Task #11's own item, but an
+    # unbounded array in one request is a separate, cheap-to-close abuse vector worth closing
+    # now rather than leaving it open until then).
+    bulk-max-items: 500
+  messaging:
+    bulk-url-jobs-queue: bulk-url-jobs
 
 resilience4j:
   circuitbreaker:

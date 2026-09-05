@@ -1,4 +1,4 @@
-package com.artmendez.urlshortener.v2.shortlink.service;
+package com.artmendez.urlshortener.v2.validation;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;

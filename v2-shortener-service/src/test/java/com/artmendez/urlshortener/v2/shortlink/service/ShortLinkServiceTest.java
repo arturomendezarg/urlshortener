@@ -6,6 +6,8 @@ import com.artmendez.urlshortener.v2.shortlink.domain.RedirectDeviceType;
 import com.artmendez.urlshortener.v2.shortlink.domain.RedirectRule;
 import com.artmendez.urlshortener.v2.shortlink.domain.ShortLink;
 import com.artmendez.urlshortener.v2.shortlink.repository.ShortLinkRepository;
+import com.artmendez.urlshortener.v2.validation.InvalidLongUrlException;
+import com.artmendez.urlshortener.v2.validation.ReservedSlugs;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;

@@ -3,7 +3,7 @@ package com.artmendez.urlshortener.v2.shortlink.web;
 import com.artmendez.urlshortener.v2.config.SecurityConfig;
 import com.artmendez.urlshortener.v2.shortlink.domain.ShortLink;
 import com.artmendez.urlshortener.v2.shortlink.service.DuplicateAliasException;
-import com.artmendez.urlshortener.v2.shortlink.service.InvalidLongUrlException;
+import com.artmendez.urlshortener.v2.validation.InvalidLongUrlException;
 import com.artmendez.urlshortener.v2.shortlink.service.ReservedSlugException;
 import com.artmendez.urlshortener.v2.shortlink.service.ShortLinkExpiredException;
 import com.artmendez.urlshortener.v2.shortlink.service.ShortLinkNotFoundException;

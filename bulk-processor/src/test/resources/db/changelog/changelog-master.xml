@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        TEST-ONLY schema mirror. Not shipped in the runtime jar (liquibase-core is a test-scope
+        dependency here, see pom.xml) — production deployments rely on v2-shortener-service's
+        own Liquibase changelog having already created these same tables against the shared
+        database. This file exists purely so this module's own Testcontainers-backed integration
+        tests get a real schema to run Hibernate/JPA against, without pulling in a cross-module
+        dependency on v2-shortener-service just to reuse its changelog files.
+
+        Column definitions are copied from v2-shortener-service's changelog-v1.0-init.xml and
+        changelog-v2.0-bulk-jobs.xml. If that service's schema changes, this file needs a
+        matching update — a known, accepted drift risk for a test-only fixture in a time-boxed
+        exercise (see AI_USAGE_LOG.md, Task #10).
+    -->
+
+    <changeSet id="bulk-processor-test-short-links-table" author="art-claude-dev">
+        <createTable tableName="short_links">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="short_code" type="VARCHAR(20)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uk_short_links_short_code"/>
+            </column>
+            <column name="long_url" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="owner_user_id" type="VARCHAR(255)"/>
+            <column name="redirect_rules" type="JSONB"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="expires_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="is_active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="bulk-processor-test-bulk-jobs-table" author="art-claude-dev">
+        <createTable tableName="bulk_jobs">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="owner_user_id" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="total_items" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="processed_items" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="failed_items" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="completed_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="bulk-processor-test-bulk-job-items-table" author="art-claude-dev">
+        <createTable tableName="bulk_job_items">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="bulk_job_id" type="BIGINT">
+                <constraints nullable="false" foreignKeyName="fk_bulk_job_items_bulk_job"
+                             references="bulk_jobs(id)"/>
+            </column>
+            <column name="line_index" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="long_url" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="custom_alias" type="VARCHAR(50)"/>
+            <column name="status" type="VARCHAR(30)" defaultValue="PENDING">
+                <constraints nullable="false"/>
+            </column>
+            <column name="short_code" type="VARCHAR(20)"/>
+            <column name="error_message" type="TEXT"/>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>
