@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: v2-shortener-service
+  namespace: url-shortener
+  labels:
+    app: v2-shortener-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: v2-shortener-service
+  template:
+    metadata:
+      labels:
+        app: v2-shortener-service
+    spec:
+      containers:
+        - name: v2-shortener-service
+          image: v2-shortener-service:kind
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8084
+          env:
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_DB
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: RABBITMQ_HOST
+              value: rabbitmq
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_PASSWORD
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            # Matches the "keycloak" Service DNS name, not the localhost:8081 an external caller
+            # uses -- see 13-keycloak.yaml's KC_HOSTNAME comment for why both still validate
+            # against the same token.
+            - name: KEYCLOAK_ISSUER_URI
+              value: http://keycloak:8080/realms/urlshortener
+            # SHORTLINK_BASE_URL is deliberately left at its application.yml default
+            # (http://localhost:8084): it only shapes the shortened URL string returned to API
+            # callers, never used for this pod's own routing, and localhost:8084 is exactly how
+            # an external caller reaches this Service too, via kind's extraPortMapping (see
+            # infra/k8s/kind-config.yaml) -- the default already happens to be correct here.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8084
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 150m
+              memory: 320Mi
+            limits:
+              cpu: 750m
+              memory: 640Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: v2-shortener-service
+  namespace: url-shortener
+spec:
+  selector:
+    app: v2-shortener-service
+  ports:
+    - port: 8084
+      targetPort: 8084
+      nodePort: 30084
+  type: NodePort

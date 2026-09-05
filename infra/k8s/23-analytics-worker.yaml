@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-worker
+  namespace: url-shortener
+  labels:
+    app: analytics-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytics-worker
+  template:
+    metadata:
+      labels:
+        app: analytics-worker
+    spec:
+      containers:
+        - name: analytics-worker
+          image: analytics-worker:kind
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8083
+          env:
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_DB
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: RABBITMQ_HOST
+              value: rabbitmq
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8083
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+# ClusterIP only, never NodePort: analytics-worker is a pure RabbitMQ consumer (click-events ->
+# click_events table, see AI_USAGE_LOG.md's Task #7/#9 entries) with no endpoint any external
+# caller is meant to call directly. The Service still exists so Prometheus (or `kubectl exec`/
+# port-forward, for a reviewer who wants to poke /actuator/health by hand) has a stable DNS name
+# to scrape, same reasoning as bulk-processor's own Service below.
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-worker
+  namespace: url-shortener
+spec:
+  selector:
+    app: analytics-worker
+  ports:
+    - port: 8083
+      targetPort: 8083

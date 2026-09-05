@@ -1,0 +1,17 @@
+# Build outputs and IDE/OS noise -- keep the image build context to source + poms only.
+# Mirrors .gitignore; kept as its own file since a Docker build context and a git tree are not
+# the same thing (this repo's .git history, for instance, must never enter the build context).
+target/
+build/
+*.class
+.git/
+.idea/
+*.iml
+.vscode/
+.DS_Store
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+application-local.yml

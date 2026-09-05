@@ -1,0 +1,8 @@
+# Everything in this directory lives in its own namespace rather than "default", so a
+# `kubectl delete namespace url-shortener` tears the whole kind demo down cleanly (see
+# infra/k8s/README.md's teardown section) without touching anything else a reviewer might already
+# have running in the same kind cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: url-shortener

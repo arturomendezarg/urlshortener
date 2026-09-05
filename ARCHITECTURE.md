@@ -252,7 +252,7 @@ Controles concretos (no solo declarados — verificados vía la API de GitHub al
 ## 9. Setup Instructions
 
 **Entorno recomendado: GitHub Codespaces**
-1. Botón `<> Code` → pestaña Codespaces → `Create codespace on main`. El devcontainer preconfigura Java 17, Maven, Docker-in-Docker y el feature de `kind`/`k3d`.
+1. Botón `<> Code` → pestaña Codespaces → `Create codespace on main`. El devcontainer preconfigura Java 17, Maven, Docker (feature `docker-outside-of-docker`, no Docker-in-Docker -- corrección respecto a una versión anterior de este párrafo: `kind` recomienda evitar DinD cuando el host ya expone su propio socket de Docker, que es exactamente lo que hace ese feature) y `kubectl`/`kind`/`helm`, instalados directamente por `.devcontainer/setup.sh` (ese script documenta por qué: la feature de terceros para Kubernetes falló al construirse en la primera versión del devcontainer).
 2. Levantar dependencias de infraestructura para desarrollo día a día:
    ```bash
    docker-compose up -d
@@ -261,11 +261,14 @@ Controles concretos (no solo declarados — verificados vía la API de GitHub al
    ```bash
    mvn clean spring-boot:run
    ```
-4. Para demostrar el despliegue en Kubernetes local:
+4. Para demostrar el despliegue en Kubernetes local (clúster `kind` de un solo nodo, con los 5
+   servicios y toda su infraestructura corriendo dentro del clúster, no reutilizando el
+   `docker-compose` del paso 2):
    ```bash
-   kind create cluster --name url-shortener
-   kubectl apply -f infra/k8s/
+   ./infra/k8s/deploy-to-kind.sh
    ```
+   Detalle completo (cómo llegar a cada servicio desde fuera del clúster, decisiones de diseño,
+   troubleshooting, teardown) en [`infra/k8s/README.md`](./infra/k8s/README.md).
 
 **Pruebas con Postman:** colección en `docs/url-shortener-enterprise.postman_collection.json`, con entornos preconfigurados para V1, V2, expiración y bulk asíncrono.
 

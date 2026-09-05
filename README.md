@@ -20,7 +20,8 @@ Racional completo de cada decisión en `ARCHITECTURE.md` §3.4 (Key Decisions).
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — arquitectura, los tres escenarios, setup, testing, seguridad, riesgos y flujo de git/PR.
 - `README.md` (este documento) — resumen ejecutivo.
 - [`.github/PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST_TEMPLATE.md) — plantilla de trazabilidad ingeniero↔IA para cada cambio.
-- A producir durante la ejecución: `AI_USAGE_LOG.md` (log continuo de prompts/decisiones), colección Postman, manifiestos de Kubernetes, código fuente por escenario.
+- [`infra/k8s/`](./infra/k8s/) — manifiestos de Kubernetes y script de despliegue a `kind` (ver `infra/k8s/README.md`).
+- Pendiente: colección Postman (`ARCHITECTURE.md` §9 la referencia; todavía no existe en el repo).
 
 ## Riesgos, Trade-offs y Validación
 
@@ -43,4 +44,9 @@ Instrucciones completas en `ARCHITECTURE.md` §9. Resumen:
 
 ## Estado actual
 
-Documentación de arquitectura y de proceso completa. Próximo paso: Día 1 del plan de ejecución (`ARCHITECTURE.md` §7), trabajado por tarea vía rama `feature/...` + Pull Request, siguiendo el flujo descrito en `ARCHITECTURE.md` §8.1.
+Días 1 y 2 completos (V1 mínimo, Gateway, contrato V2, Brownfield, Redirect & Cache con Redis y
+Circuit Breaker, Analytics Worker, Keycloak/OIDC). Día 3 en curso: Bulk Processor, validación
+anti-open-redirect y rate limiting, y manifiestos de Kubernetes desplegados en `kind` ya
+completos y mergeados a `main`; quedan pendientes cobertura de integración adicional y la
+documentación final (colección Postman, esta sección). Historial completo, PR por PR, en
+`AI_USAGE_LOG.md`.
