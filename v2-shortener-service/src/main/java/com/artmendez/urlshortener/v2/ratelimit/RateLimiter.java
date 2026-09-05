@@ -41,15 +41,30 @@ import java.util.concurrent.TimeUnit;
  * CLOSED by design) — availability of the core feature must not depend on this limiter's own
  * infrastructure being up.
  *
- * <p><b>{@link RateLimitExceededException} must never reach the fallback:</b> that exception is
- * this method's normal, expected way of reporting "the caller went over their limit" — it says
- * nothing about Redis being unavailable. Resilience4j's {@code @CircuitBreaker} aspect routes
- * EVERY exception a guarded method throws to its fallback by default, which would silently let
- * a rate-limited caller through (exactly backwards). {@code
- * resilience4j.circuitbreaker.instances.redis.ignore-exceptions} in {@code application.yml}
- * lists this exception so it is neither recorded as a circuit-breaker failure nor routed to
- * {@link #allowOnRedisOutage} — it propagates straight to the controller's own
- * {@code @ExceptionHandler} instead, exactly like a plain (non-guarded) method call would.
+ * <p><b>{@link RateLimitExceededException} must never be mistaken for a Redis failure</b>, and
+ * that takes TWO independent mechanisms, because Resilience4j decides "what the breaker records"
+ * and "what the fallback catches" in two different places:
+ *
+ * <ul>
+ *   <li><b>What the breaker records</b> — {@code
+ *       resilience4j.circuitbreaker.instances.redis.ignore-exceptions} in {@code application.yml}
+ *       lists this exception, so a caller going over their limit is never counted as a Redis
+ *       failure. Without it, one caller hammering past the limit would trip the "redis" breaker
+ *       open, and since that instance is SHARED with {@link
+ *       com.artmendez.urlshortener.v2.shortlink.cache.ShortLinkCache}, it would take the redirect
+ *       cache down with it as collateral damage.</li>
+ *   <li><b>What the fallback catches</b> — {@code ignore-exceptions} does NOT stop the fallback
+ *       from running. The {@code fallbackMethod} decorator sits OUTSIDE the breaker-decorated
+ *       call and catches every {@link Throwable} coming out of it, ignored by the breaker or
+ *       not. That is why {@link #allowOnRedisOutage} rethrows this exception explicitly instead
+ *       of logging it: otherwise the fallback would swallow it and let a rate-limited caller
+ *       straight through, exactly backwards.</li>
+ * </ul>
+ *
+ * <p>Assuming the first mechanism also covered the second is precisely what made this class's
+ * first CI run fail (three {@code RateLimiterTest} cases saw no exception at all) — recorded in
+ * {@code AI_USAGE_LOG.md} rather than quietly fixed, since the distinction is easy to get wrong
+ * and invisible until a test asserts on it.
  */
 @Component
 public class RateLimiter {
@@ -85,12 +100,25 @@ public class RateLimiter {
     }
 
     /**
-     * Invoked by Resilience4j (by name, via the {@code fallbackMethod} above) when the "redis"
-     * circuit breaker is open or the call to Redis itself fails. Deliberately does nothing but
-     * log: see the class Javadoc for why this fails open instead of rejecting the request.
+     * Invoked by Resilience4j (by name, via the {@code fallbackMethod} above) for EVERY throwable
+     * {@link #checkLimit} lets out — whether the "redis" breaker is open, the call to Redis
+     * failed, or the limit was simply exceeded. For a genuine Redis problem this deliberately
+     * does nothing but log, so link creation keeps working uncapped instead of failing outright;
+     * {@link RateLimitExceededException} is rethrown untouched, because it is this limiter's
+     * normal, expected answer and not an infrastructure failure at all (see the class Javadoc).
+     *
+     * <p>Deliberately typed as {@link Throwable} rather than enumerating Redis's own exception
+     * types ({@code RedisConnectionFailureException}, {@code QueryTimeoutException},
+     * {@code CallNotPermittedException}, ...) in narrower overloads: fail-open is only worth
+     * anything if it covers every way the client library can fail, including the ones not
+     * thought of here, and the single business exception that must NOT fail open is the one case
+     * this method can name exactly.
      */
     @SuppressWarnings("unused")
     private void allowOnRedisOutage(String key, int limit, Duration window, Throwable t) {
+        if (t instanceof RateLimitExceededException rateLimitExceeded) {
+            throw rateLimitExceeded;
+        }
         log.warn("Rate limiter could not reach Redis for key '{}', allowing the request through "
                 + "(fail-open): {}", key, t.toString());
     }

@@ -77,6 +77,14 @@ class RateLimiterTest {
         rateLimiter.checkLimit(key, 2, Duration.ofSeconds(60));
 
         // The 3rd call against a limit of 2 is the one that must be rejected.
+        //
+        // This assertion is also the regression guard for a real bug this class caught on its
+        // very first CI run: because @CircuitBreaker's fallbackMethod catches every Throwable
+        // the guarded method lets out, the fallback was swallowing RateLimitExceededException
+        // and letting rate-limited callers straight through -- and it does so regardless of
+        // resilience4j's ignore-exceptions, which only governs what the breaker RECORDS. Going
+        // through the real Spring proxy here (rather than calling a plain RateLimiter instance)
+        // is what makes this test able to see that at all.
         assertThatThrownBy(() -> rateLimiter.checkLimit(key, 2, Duration.ofSeconds(60)))
                 .isInstanceOf(RateLimitExceededException.class)
                 .hasMessageContaining("Rate limit exceeded");

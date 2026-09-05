@@ -85,9 +85,13 @@ resilience4j:
         slow-call-duration-threshold: 300ms
         slow-call-rate-threshold: 50
         # RateLimiter.checkLimit's normal "over the limit" outcome is a
-        # RateLimitExceededException, not a Redis failure -- excluded so it is never recorded as
-        # a circuit-breaker failure nor routed to RateLimiter's fallback (which would otherwise
-        # silently let a rate-limited caller through). See RateLimiter's own Javadoc.
+        # RateLimitExceededException, not a Redis failure. Listed here so it is never RECORDED as
+        # a failure of this breaker: otherwise a single caller hammering past their limit would
+        # trip the breaker open, and this instance is shared with ShortLinkCache, so it would
+        # take the redirect cache down as collateral damage. Note what this does NOT do: it does
+        # not stop RateLimiter's fallback from catching the exception (the fallback decorator
+        # sits outside the breaker and catches everything), which is handled separately, in
+        # RateLimiter.allowOnRedisOutage itself. See that class's Javadoc.
         ignore-exceptions:
           - com.artmendez.urlshortener.v2.ratelimit.RateLimitExceededException
 
