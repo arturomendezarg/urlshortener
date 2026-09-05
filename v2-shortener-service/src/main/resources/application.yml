@@ -52,6 +52,21 @@ app:
     bulk-max-items: 500
   messaging:
     bulk-url-jobs-queue: bulk-url-jobs
+  ratelimit:
+    # Redis-backed fixed-window counters (ARCHITECTURE.md, section 5/8, Task #11) guarding
+    # against a single authenticated caller creating short links faster than these thresholds.
+    # Keyed per JWT subject, not per client IP: both endpoints already require a valid token, so
+    # the abuse case worth mitigating is a compromised or malicious authenticated caller
+    # hammering creation, not an anonymous flood these endpoints never accept anyway.
+    create-url:
+      limit: 30
+      window-seconds: 60
+    bulk-create:
+      # Much lower than create-url: one call here can create up to
+      # app.shortlink.bulk-max-items short links, so the effective link-creation throughput this
+      # still allows per window is far higher than the single-create endpoint's own limit.
+      limit: 5
+      window-seconds: 60
 
 resilience4j:
   circuitbreaker:
@@ -69,6 +84,12 @@ resilience4j:
         automatic-transition-from-open-to-half-open-enabled: true
         slow-call-duration-threshold: 300ms
         slow-call-rate-threshold: 50
+        # RateLimiter.checkLimit's normal "over the limit" outcome is a
+        # RateLimitExceededException, not a Redis failure -- excluded so it is never recorded as
+        # a circuit-breaker failure nor routed to RateLimiter's fallback (which would otherwise
+        # silently let a rate-limited caller through). See RateLimiter's own Javadoc.
+        ignore-exceptions:
+          - com.artmendez.urlshortener.v2.ratelimit.RateLimitExceededException
 
 management:
   endpoints:

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <FindBugsFilter>
     <!--
-      EI_EXPOSE_REP / EI_EXPOSE_REP2 excluded for exactly eleven classes across
-      v2-shortener-service's "shortlink" package and the bulk-processor module (Day 2, Task #9
-      and Day 3, Task #10). Nothing else is excluded: every other SpotBugs pattern, in every
-      other class of every module, still fails the build.
+      EI_EXPOSE_REP / EI_EXPOSE_REP2 excluded for exactly twelve classes across
+      v2-shortener-service's "shortlink" package and the bulk-processor module (Day 2, Task #9,
+      Day 3, Task #10 and Task #11). Nothing else is excluded: every other SpotBugs pattern, in
+      every other class of every module, still fails the build.
 
       Two distinct groups, neither of which is a real defect here:
 
@@ -20,8 +20,8 @@
          shape as CachedShortLink ("redirectRules") and CreateUrlRequest ("redirectRules").
 
       2. ShortLinkCache, ShortLinkService, ShortLinkController, BulkJobService,
-         BulkJobController, BulkJobProcessingService and BulkJobListener each store a
-         constructor injected Spring collaborator: an ObjectMapper, a
+         BulkJobController, BulkJobProcessingService, BulkJobListener and RateLimiter each
+         store a constructor injected Spring collaborator: an ObjectMapper, a
          StringRedisTemplate/RedisOperations, or one of this project's own service/controller
          beans. That is ordinary dependency injection, not caller owned state that defensive
          copying would protect. The check is transitive, so it propagates layer by layer:
@@ -32,13 +32,16 @@
          ShortLinkController which holds that. The same chain repeats for the bulk feature:
          BulkJobService holds BulkJobPublisher, so BulkJobController (which holds
          BulkJobService) inherits the same finding; BulkJobListener holds
-         BulkJobProcessingService for the identical reason. BulkJobPublisher itself is NOT
-         excluded: its only fields are a String queue name and an AmqpTemplate (see the
-         contrast below), so it is not actually flagged. BulkJobProcessingService's own
-         repository and ReservedSlugs fields are also not what trigger its finding (repository
-         interfaces and the genuinely immutable ReservedSlugs are not flagged either, per the
-         same reasoning below) — it is included here defensively, matching the same
-         controller/service chain, since the class cannot be verified locally (see
+         BulkJobProcessingService for the identical reason. RateLimiter (Task #11) holds a
+         live StringRedisTemplate, the exact same shape as ShortLinkCache's own Redis field, so
+         both ShortLinkController and BulkJobController (which now also hold a RateLimiter)
+         would be flagged for this reason even if they held nothing else. BulkJobPublisher
+         itself is NOT excluded: its only fields are a String queue name and an AmqpTemplate
+         (see the contrast below), so it is not actually flagged. BulkJobProcessingService's
+         own repository and ReservedSlugs fields are also not what trigger its finding
+         (repository interfaces and the genuinely immutable ReservedSlugs are not flagged
+         either, per the same reasoning below) — it is included here defensively, matching the
+         same controller/service chain, since the class cannot be verified locally (see
          AI_USAGE_LOG.md's declared network limitation).
 
       Worth contrasting with two cases that needed no exclusion at all: PR #20 switched a
@@ -68,6 +71,7 @@
             <Class name="com.artmendez.urlshortener.v2.shortlink.bulk.web.BulkJobController"/>
             <Class name="com.artmendez.urlshortener.bulk.service.BulkJobProcessingService"/>
             <Class name="com.artmendez.urlshortener.bulk.messaging.BulkJobListener"/>
+            <Class name="com.artmendez.urlshortener.v2.ratelimit.RateLimiter"/>
         </Or>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
