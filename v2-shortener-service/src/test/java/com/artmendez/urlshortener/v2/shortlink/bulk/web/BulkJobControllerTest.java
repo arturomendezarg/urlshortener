@@ -3,6 +3,7 @@ package com.artmendez.urlshortener.v2.shortlink.bulk.web;
 import com.artmendez.urlshortener.v2.config.SecurityConfig;
 import com.artmendez.urlshortener.v2.shortlink.bulk.domain.BulkJob;
 import com.artmendez.urlshortener.v2.shortlink.bulk.domain.BulkJobItem;
+import com.artmendez.urlshortener.v2.shortlink.bulk.domain.BulkJobItemStatus;
 import com.artmendez.urlshortener.v2.shortlink.bulk.service.BulkJobNotFoundException;
 import com.artmendez.urlshortener.v2.shortlink.bulk.service.BulkJobService;
 import com.artmendez.urlshortener.v2.shortlink.bulk.service.BulkSubmissionTooLargeException;
@@ -106,8 +107,12 @@ class BulkJobControllerTest {
     @Test
     void status_returnsTheJobAndItsItems() throws Exception {
         BulkJob job = newJob("user-123", 1, 42L);
+        // BulkJobItem is read/create-only on this service's side (see its Javadoc): only
+        // bulk-processor's own write-side entity has markCompleted. Set the fields directly,
+        // same idiom as newJob() above for the generated id.
         BulkJobItem item = new BulkJobItem(42L, 0, "https://example.com", null);
-        item.markCompleted("abc1234");
+        ReflectionTestUtils.setField(item, "status", BulkJobItemStatus.COMPLETED);
+        ReflectionTestUtils.setField(item, "shortCode", "abc1234");
         when(service.getJob(eq(42L), anyString())).thenReturn(job);
         when(service.getItems(42L)).thenReturn(List.of(item));
 
