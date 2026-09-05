@@ -9,6 +9,54 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/urlshortener}
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:urlshortener}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  liquibase:
+    change-log: classpath:db/changelog/changelog-master.xml
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Short, bounded connect/command timeout: the whole point of the Circuit Breaker
+      # (see ShortLinkCache) is that a Redis outage must fail FAST so the fallback to
+      # PostgreSQL kicks in quickly instead of the redirect path hanging.
+      timeout: 300ms
+      connect-timeout: 300ms
+
+app:
+  shortlink:
+    # Reserved slugs that can never be assigned as a customAlias (ARCHITECTURE.md, section 5).
+    reserved-slugs: api,admin,health,actuator
+    # TTL (seconds) of a cached short link entry. Bounds how long a change made directly in
+    # PostgreSQL (e.g. deactivating a link) can take to be reflected on the redirect path while
+    # the cache entry is still warm. A plain number, not a Duration literal like "5m": kept as
+    # seconds so it binds cleanly via a simple @Value(long) without relying on Spring's Duration
+    # string-conversion rules applying to @Value the same way they do to @ConfigurationProperties.
+    cache-ttl-seconds: 300
+    base-url: ${SHORTLINK_BASE_URL:http://localhost:8084}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      redis:
+        # Applies to the Redis-only calls in ShortLinkCache, never to the PostgreSQL fallback
+        # itself (see ARCHITECTURE.md, section 6, Scenario A: the AI's first draft only handled
+        # cache-miss, not Redis being unreachable — this Circuit Breaker is the fix).
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 5s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        slow-call-duration-threshold: 300ms
+        slow-call-rate-threshold: 50
 
 management:
   endpoints:
@@ -18,3 +66,6 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  health:
+    circuitbreakers:
+      enabled: true

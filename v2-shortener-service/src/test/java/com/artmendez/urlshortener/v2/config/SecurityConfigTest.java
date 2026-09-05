@@ -1,5 +1,6 @@
 package com.artmendez.urlshortener.v2.config;
 
+import com.artmendez.urlshortener.v2.shortlink.service.ShortLinkService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -36,17 +37,30 @@ class SecurityConfigTest {
     @MockBean
     private JwtDecoder jwtDecoder;
 
+    // @WebMvcTest with no controllers=... attribute scans every @RestController in the app,
+    // which now includes ShortLinkController (Task #9) -- its constructor needs a
+    // ShortLinkService bean, which this slice does not provide on its own. Mocked here purely
+    // to let the context load; this test still only exercises SecurityConfig's authorization
+    // rules, never ShortLinkService's behavior.
+    @MockBean
+    private ShortLinkService shortLinkService;
+
+    // Deliberately NOT "/api/v2/urls": Task #9 mapped POST there, and Spring MVC replies 405
+    // (not 404) to a GET on a path mapped for a different HTTP method. This path has no mapping
+    // for any method at all, so it stays a valid stand-in for "unmapped, but past security".
+    private static final String UNMAPPED_PATH = "/api/v2/urls/diagnostic-not-mapped";
+
     @Test
     void rejectsAnUnauthenticatedRequest() throws Exception {
-        mockMvc.perform(get("/api/v2/urls")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(UNMAPPED_PATH)).andExpect(status().isUnauthorized());
     }
 
     @Test
     void letsAnAuthenticatedRequestThroughSecurity() throws Exception {
         // 404, not 401/403: authentication clears security and reaches DispatcherServlet, which
-        // has no handler for this not-yet-implemented (Task #9) path -- same reasoning as
+        // has no handler mapped at this path at all. Same reasoning as
         // KeycloakResourceServerIntegrationTest, just with a mocked authentication instead of a
         // real token from a real Keycloak.
-        mockMvc.perform(get("/api/v2/urls").with(jwt())).andExpect(status().isNotFound());
+        mockMvc.perform(get(UNMAPPED_PATH).with(jwt())).andExpect(status().isNotFound());
     }
 }
