@@ -1,0 +1,318 @@
+From 48c1ed4c4d21cf697b2051a8bdb0d0d134b9e767 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 20:44:19 +0000
+Subject: [PATCH] Add Testcontainers integration coverage for bulk-job
+ submission
+
+BulkJobServiceTest was entirely mock-based, so it could prove createJob's
+publish failure exception propagates but never that the surrounding
+@Transactional boundary actually rolls back a real database transaction.
+
+- BulkJobServiceIntegrationTest: real Postgres + RabbitMQ, proves the job
+  header and its line items persist correctly and that a real, consumable
+  message lands on the bulk-url-jobs queue.
+- BulkJobServiceRabbitMqOutageTest: separate chaos test class (same
+  convention as ShortLinkRedisOutageIntegrationTest/RateLimiterRedisOutageTest),
+  stops RabbitMQ and proves no orphaned PENDING rows are left behind when
+  the publish fails.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GpraCPnQg4FFk1pvfHB6Mt
+---
+ AI_USAGE_LOG.md                               |  15 ++
+ .../BulkJobServiceIntegrationTest.java        | 152 ++++++++++++++++++
+ .../BulkJobServiceRabbitMqOutageTest.java     | 100 ++++++++++++
+ 3 files changed, 267 insertions(+)
+ create mode 100644 v2-shortener-service/src/test/java/com/artmendez/urlshortener/v2/shortlink/bulk/service/BulkJobServiceIntegrationTest.java
+ create mode 100644 v2-shortener-service/src/test/java/com/artmendez/urlshortener/v2/shortlink/bulk/service/BulkJobServiceRabbitMqOutageTest.java
+
+diff --git a/AI_USAGE_LOG.md b/AI_USAGE_LOG.md
+index e1214fb..4633d61 100644
+--- a/AI_USAGE_LOG.md
++++ b/AI_USAGE_LOG.md
+@@ -575,3 +575,18 @@ Continuous log of decisions made during AI-assisted execution (see template and
+   this is a change to WHERE and HOW the values are introduced, not what they are.
+ - **Decision:** Adjusted — fixed on the same branch (`feature/k8s-kind-deployment`), targeted by
+   PR #30, in direct response to review feedback.
++
++## 2026-09-05 — [Test] PR — Real-infra integration coverage for bulk-job submission
++
++- **Task:** ARCHITECTURE.md, section 7's Day 3 must-ship item "pruebas de integración con Testcontainers", audited after PR #29 and PR #30 (Kubernetes/kind) both merged into `main`. Branch `feature/bulk-service-integration-tests`, created from `main` at `2325c9e` (PR #30's merge commit).
++- **Prompt:** "si", in response to a 4-item pending-work list (merge PR #30 / run the real kind deployment / add integration tests / finish documentation) after PR #30 was confirmed approved-but-unmerged. Interpreted as "continue with whatever does not require the engineer's own action" — PR #30's merge and the real `kind` run both do — so this picked up the Testcontainers audit.
++- **Researched first, before writing any code:** enumerated all 27 test files in the repo and confirmed which of the 11 `@Testcontainers`-backed ones already exercise real infrastructure, then reasoned through which modules legitimately don't need it (`api-gateway`: pure routing, no infra dependency of its own; `v2-shortener-contract`: pure validation/generator logic, no infra at all). Found one genuine, well-justified gap: `v2-shortener-service`'s bulk-job SUBMISSION path (`BulkJobService.createJob`, Task #10) has zero real-infra coverage. `BulkJobServiceTest` is entirely mock-based (`BulkJobRepository`/`BulkJobItemRepository`/`BulkJobPublisher` are all Mockito mocks) — it already has a test asserting a publish failure's exception propagates (`createJob_propagatesAPublishFailureRatherThanSwallowingIt`), but a mock-based test cannot prove Spring's `@Transactional` boundary actually rolls back a real database transaction, only that the exception itself reached the caller. That guarantee — no orphaned `PENDING` row when the broker is unreachable — is exactly what `BulkJobPublisher`'s own Javadoc documents as the reason it deliberately never catches its own exceptions, and it had never been verified against real Postgres/RabbitMQ.
++- **AI-generated:** two new test classes in `v2-shortener-service/src/test/java/.../shortlink/bulk/service/`:
++  - `BulkJobServiceIntegrationTest` — `@Testcontainers` + `@SpringBootTest(webEnvironment = MOCK)` (same reasoning as `ShortLinkServiceIntegrationTest`: `NONE` skips the servlet auto-configuration `SecurityConfig`'s filter chain bean needs). Real `PostgreSQLContainer` + `RabbitMQContainer("rabbitmq:3.13-management-alpine").withUser("appuser", "appuser_local")` (same dedicated-user workaround as `KeycloakResourceServerIntegrationTest`, needed because RabbitMQ's `loopback_users` restriction rejects "guest" over a Testcontainers-mapped port). No Redis/Keycloak containers: neither is touched by `createJob`, and both connect lazily on first real use rather than at context startup — `ShortLinkServiceIntegrationTest` already proves this same full context boots with no RabbitMQ container present, for the symmetric reason. Because this module's own `RabbitConfig` deliberately does not declare the `bulk-url-jobs` queue (producer stays queue-agnostic; bulk-processor, the consumer, declares it — same split as V1's `click-events`), the test declares the queue itself via `AmqpAdmin` in a `@BeforeEach`, purging it first so one test method's message cannot be mistaken for another's on the same shared broker. Two tests: real Postgres persistence of the job header and every line item (re-read through the repositories, not the returned object, so it actually proves the row exists rather than trusting the JPA persistence context's in-memory view), and a real, consumable message read back off the real queue via `RabbitTemplate.receiveAndConvert`.
++  - `BulkJobServiceRabbitMqOutageTest` — kept as its own class, not a method inside the class above, for the same reason `ShortLinkRedisOutageIntegrationTest` and `RateLimiterRedisOutageTest` are each split from their own happy-path classes: JUnit does not guarantee method execution order, so stopping a shared container mid-test must not risk breaking another test sharing that same static container. Stops `RABBITMQ`, calls `createJob(...)`, asserts it throws `AmqpException` (no fail-open fallback here — unlike `RateLimiter`'s Redis Circuit Breaker, a bulk-job publish failure must fail loud, per `BulkJobPublisher`'s own Javadoc), and then asserts `jobRepository.findAll()`/`itemRepository.findAll()` are both empty — the first real, database-backed proof that the whole transaction actually rolled back, not just that the exception propagated.
++- **Verification before pushing:** re-ran this project's standing mechanical checks (a Python script mirroring `checkstyle.xml`'s actual ruleset — unused/star/duplicate imports, tabs, missing trailing newline) over both new files: clean. Attempted `mvn -pl v2-shortener-service -am dependency:resolve` from this AI's own sandbox to see whether a real compile was possible this time — it was not: Maven Central still returns `403 Forbidden` through this sandbox's proxy, the same standing limitation logged on every previous PR in this project. Verification therefore still depends on the engineer's own `mvn verify`/CI loop; any CI failure will be diagnosed from that real output, not from precedent-based guessing, per the lesson from PR #28/#29.
++- **Not modified:** no production code changed in this PR — this is test-only coverage of already-shipped behavior (Task #10).
++- **Declared risks:**
++  - Same standing risk as every previous PR: no Maven Central reachable from this AI's own sandbox, so neither new test class was compiled or run locally.
++  - `BulkJobServiceIntegrationTest`'s message-consumability test asserts against a queue this test itself declares, not bulk-processor's own queue/DLQ setup (a different Spring context entirely) — it proves the message v2-shortener-service publishes is well-formed and consumable, not that bulk-processor's own consumer configuration is correct; that remains bulk-processor's own test suite's responsibility.
++- **Decision:** pending engineer review (see PR).
+diff --git a/v2-shortener-service/src/test/java/com/artmendez/urlshortener/v2/shortlink/bulk/service/BulkJobServiceIntegrationTest.java b/v2-shortener-service/src/test/java/com/artmendez/urlshortener/v2/shortlink/bulk/service/BulkJobServiceIntegrationTest.java
+new file mode 100644
+index 0000000..995dc9e
+--- /dev/null
++++ b/v2-shortener-service/src/test/java/com/artmendez/urlshortener/v2/shortlink/bulk/service/BulkJobServiceIntegrationTest.java
+@@ -0,0 +1,152 @@
++package com.artmendez.urlshortener.v2.shortlink.bulk.service;
++
++import com.artmendez.urlshortener.v2.shortlink.bulk.domain.BulkJob;
++import com.artmendez.urlshortener.v2.shortlink.bulk.domain.BulkJobItem;
++import com.artmendez.urlshortener.v2.shortlink.bulk.messaging.BulkJobMessage;
++import com.artmendez.urlshortener.v2.shortlink.bulk.repository.BulkJobItemRepository;
++import com.artmendez.urlshortener.v2.shortlink.bulk.repository.BulkJobRepository;
++import com.artmendez.urlshortener.v2.shortlink.bulk.web.BulkUrlItemRequest;
++
++import org.junit.jupiter.api.BeforeEach;
++import org.junit.jupiter.api.Test;
++import org.springframework.amqp.core.AmqpAdmin;
++import org.springframework.amqp.core.Queue;
++import org.springframework.amqp.rabbit.core.RabbitTemplate;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.test.context.DynamicPropertyRegistry;
++import org.springframework.test.context.DynamicPropertySource;
++import org.testcontainers.containers.PostgreSQLContainer;
++import org.testcontainers.containers.RabbitMQContainer;
++import org.testcontainers.junit.jupiter.Container;
++import org.testcontainers.junit.jupiter.Testcontainers;
++
++import java.util.List;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++/**
++ * Real-infra proof (Day 3, ARCHITECTURE.md section 7's "pruebas de integración con
++ * Testcontainers") of {@link BulkJobService#createJob}'s happy path: a real PostgreSQL row for
++ * the job header and each line item, plus a real, consumable message on the real {@code
++ * bulk-url-jobs} queue.
++ *
++ * <p>Before this test, {@link BulkJobServiceTest} was the only coverage of {@code createJob} --
++ * entirely mock-based ({@code BulkJobRepository}, {@code BulkJobItemRepository} and {@code
++ * BulkJobPublisher} are all Mockito mocks there). That proves this service calls its
++ * collaborators with the right arguments, but it cannot prove two things only real infrastructure
++ * can: that the rows Hibernate builds actually satisfy the {@code bulk_jobs}/{@code
++ * bulk_job_items} schema (a column-mapping mistake would pass every mock-based test and still
++ * fail against a real database), and that the message this service publishes is one
++ * bulk-processor could really receive and deserialize off a real broker.
++ *
++ * <p>This module's own {@link com.artmendez.urlshortener.v2.shortlink.bulk.messaging.RabbitConfig}
++ * deliberately does not declare the {@code bulk-url-jobs} queue (see its Javadoc: "consumer
++ * declares" -- only bulk-processor's own {@code RabbitConfig} does that, and bulk-processor is a
++ * separate module/Spring context, not part of this one). So this test declares the queue itself,
++ * via {@link AmqpAdmin}, purely so a message published during the test has somewhere to land and
++ * can be read back with {@link RabbitTemplate#receiveAndConvert(String, long)} -- it is not
++ * asserting anything about bulk-processor's own queue/DLQ setup, which is that module's own test
++ * suite's job.
++ *
++ * <p>Uses the same {@code RabbitMQContainer(...).withUser("appuser", "appuser_local")} pattern as
++ * {@link com.artmendez.urlshortener.v2.config.KeycloakResourceServerIntegrationTest} and the same
++ * reason: RabbitMQ's {@code loopback_users} restriction rejects the default "guest" user
++ * authenticating over a Testcontainers-mapped port. {@code WebEnvironment.MOCK} (not {@code
++ * NONE}) for the same reason documented on {@link
++ * com.artmendez.urlshortener.v2.shortlink.service.ShortLinkServiceIntegrationTest}: {@code NONE}
++ * skips the servlet auto-configuration {@code SecurityConfig}'s {@code SecurityFilterChain} bean
++ * needs to build, so the context fails to start at all.
++ *
++ * <p>No Redis or Keycloak containers here (unlike {@code KeycloakResourceServerIntegrationTest}):
++ * neither is exercised by anything {@code createJob} touches, and both this module's Redis-backed
++ * cache and its OAuth2 resource server config connect lazily on first real use, not at context
++ * startup -- {@link
++ * com.artmendez.urlshortener.v2.shortlink.service.ShortLinkServiceIntegrationTest} already boots
++ * this same full context with no RabbitMQ container present for exactly the symmetric reason.
++ */
++@Testcontainers
++@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
++class BulkJobServiceIntegrationTest {
++
++    private static final String QUEUE_NAME = "bulk-url-jobs";
++
++    @Container
++    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
++
++    @Container
++    static final RabbitMQContainer RABBITMQ =
++            new RabbitMQContainer("rabbitmq:3.13-management-alpine").withUser("appuser", "appuser_local");
++
++    @DynamicPropertySource
++    static void configureProperties(DynamicPropertyRegistry registry) {
++        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
++        registry.add("spring.datasource.username", POSTGRES::getUsername);
++        registry.add("spring.datasource.password", POSTGRES::getPassword);
++        registry.add("spring.rabbitmq.host", RABBITMQ::getHost);
++        registry.add("spring.rabbitmq.port", RABBITMQ::getAmqpPort);
++        registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
++        registry.add("spring.rabbitmq.password", RABBITMQ::getAdminPassword);
++    }
++
++    @Autowired
++    private BulkJobService service;
++
++    @Autowired
++    private BulkJobRepository jobRepository;
++
++    @Autowired
++    private BulkJobItemRepository itemRepository;
++
++    @Autowired
++    private AmqpAdmin amqpAdmin;
++
++    @Autowired
++    private RabbitTemplate rabbitTemplate;
++
++    @BeforeEach
++    void declareAndClearTheQueue() {
++        // This context never declares "bulk-url-jobs" itself (see class Javadoc) -- declare it
++        // here so createJob's publish() has a real queue to land on. Purge first so a message
++        // left over from a previous method in this class (same broker, same static @Container)
++        // cannot be mistaken for the one this test method itself publishes.
++        amqpAdmin.declareQueue(new Queue(QUEUE_NAME, false, false, false));
++        amqpAdmin.purgeQueue(QUEUE_NAME, true);
++    }
++
++    @Test
++    void createJob_persistsTheJobHeaderAndEveryLineItemInPostgres() {
++        List<BulkUrlItemRequest> urls = List.of(
++                new BulkUrlItemRequest("https://example.com/1", null),
++                new BulkUrlItemRequest("https://example.com/2", "custom-alias"));
++
++        BulkJob created = service.createJob(urls, "user-integration-1");
++
++        // Re-read through the repositories instead of trusting the returned object, so this
++        // actually proves the row exists in Postgres and not just in the JPA persistence
++        // context's in-memory view of what it just wrote.
++        BulkJob reloaded = jobRepository.findById(created.getId()).orElseThrow();
++        assertThat(reloaded.getOwnerUserId()).isEqualTo("user-integration-1");
++        assertThat(reloaded.getTotalItems()).isEqualTo(2);
++
++        List<BulkJobItem> items = itemRepository.findByBulkJobIdOrderByLineIndexAsc(created.getId());
++        assertThat(items).hasSize(2);
++        assertThat(items.get(0).getLongUrl()).isEqualTo("https://example.com/1");
++        assertThat(items.get(0).getCustomAlias()).isNull();
++        assertThat(items.get(1).getCustomAlias()).isEqualTo("custom-alias");
++    }
++
++    @Test
++    void createJob_publishesARealMessageThatBulkProcessorCouldActuallyConsume() {
++        BulkJob created = service.createJob(
++                List.of(new BulkUrlItemRequest("https://example.com/queued", null)), "user-integration-2");
++
++        // 5s is generous for a message that was already published before this call -- Rabbit
++        // delivers same-broker messages effectively immediately; this is not waiting on any
++        // asynchronous processing, just a network round trip.
++        BulkJobMessage received = (BulkJobMessage) rabbitTemplate.receiveAndConvert(QUEUE_NAME, 5_000);
++
++        assertThat(received).isNotNull();
++        assertThat(received.jobId()).isEqualTo(created.getId());
++    }
++}
+diff --git a/v2-shortener-service/src/test/java/com/artmendez/urlshortener/v2/shortlink/bulk/service/BulkJobServiceRabbitMqOutageTest.java b/v2-shortener-service/src/test/java/com/artmendez/urlshortener/v2/shortlink/bulk/service/BulkJobServiceRabbitMqOutageTest.java
+new file mode 100644
+index 0000000..6b46d3a
+--- /dev/null
++++ b/v2-shortener-service/src/test/java/com/artmendez/urlshortener/v2/shortlink/bulk/service/BulkJobServiceRabbitMqOutageTest.java
+@@ -0,0 +1,100 @@
++package com.artmendez.urlshortener.v2.shortlink.bulk.service;
++
++import com.artmendez.urlshortener.v2.shortlink.bulk.repository.BulkJobItemRepository;
++import com.artmendez.urlshortener.v2.shortlink.bulk.repository.BulkJobRepository;
++import com.artmendez.urlshortener.v2.shortlink.bulk.web.BulkUrlItemRequest;
++
++import org.junit.jupiter.api.Test;
++import org.springframework.amqp.AmqpException;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.boot.test.context.SpringBootTest;
++import org.springframework.test.context.DynamicPropertyRegistry;
++import org.springframework.test.context.DynamicPropertySource;
++import org.testcontainers.containers.PostgreSQLContainer;
++import org.testcontainers.containers.RabbitMQContainer;
++import org.testcontainers.junit.jupiter.Container;
++import org.testcontainers.junit.jupiter.Testcontainers;
++
++import java.util.List;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++
++/**
++ * Chaos test proving the one guarantee {@link BulkJobServiceTest}'s mock-based
++ * {@code createJob_propagatesAPublishFailureRatherThanSwallowingIt} could never actually verify:
++ * that a publish failure rolls back the REAL database transaction, leaving no orphaned {@code
++ * PENDING} {@code bulk_jobs}/{@code bulk_job_items} rows behind.
++ *
++ * <p>{@link BulkJobService#createJob} is {@code @Transactional} and calls {@code
++ * publisher.publish(...)} last, after both repository saves (see its own Javadoc and {@link
++ * com.artmendez.urlshortener.v2.shortlink.bulk.messaging.BulkJobPublisher}'s: "letting the
++ * exception propagate rolls that whole transaction back... no orphaned PENDING row is left behind
++ * to retry against"). That is a real, load-bearing correctness claim -- a bulk-job row visible to
++ * a caller but never actually queued for bulk-processor to pick up would be a silent bug users
++ * would only discover by waiting forever for a job that will never move past {@code PENDING}. A
++ * mock-based test can prove the exception reaches the caller; only a real database can prove the
++ * rows themselves never committed.
++ *
++ * <p>Kept as its own test class rather than a method inside {@link BulkJobServiceIntegrationTest},
++ * for the exact same reason {@code ShortLinkRedisOutageIntegrationTest} and {@code
++ * RateLimiterRedisOutageTest} are each split out from their respective happy-path classes: JUnit
++ * does not guarantee method execution order, so stopping this class's shared {@code RabbitMQContainer}
++ * mid-test would risk breaking any other test sharing that same static container.
++ */
++@Testcontainers
++@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
++class BulkJobServiceRabbitMqOutageTest {
++
++    @Container
++    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
++
++    @Container
++    static final RabbitMQContainer RABBITMQ =
++            new RabbitMQContainer("rabbitmq:3.13-management-alpine").withUser("appuser", "appuser_local");
++
++    @DynamicPropertySource
++    static void configureProperties(DynamicPropertyRegistry registry) {
++        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
++        registry.add("spring.datasource.username", POSTGRES::getUsername);
++        registry.add("spring.datasource.password", POSTGRES::getPassword);
++        registry.add("spring.rabbitmq.host", RABBITMQ::getHost);
++        registry.add("spring.rabbitmq.port", RABBITMQ::getAmqpPort);
++        registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
++        registry.add("spring.rabbitmq.password", RABBITMQ::getAdminPassword);
++    }
++
++    @Autowired
++    private BulkJobService service;
++
++    @Autowired
++    private BulkJobRepository jobRepository;
++
++    @Autowired
++    private BulkJobItemRepository itemRepository;
++
++    @Test
++    void createJob_rollsBackTheJobAndItsItemsWhenThePublishFails() {
++        RABBITMQ.stop();
++
++        List<BulkUrlItemRequest> urls = List.of(new BulkUrlItemRequest("https://example.com/orphan", null));
++
++        // Unlike RateLimiter's Redis Circuit Breaker (which deliberately fails OPEN -- see
++        // RateLimiterRedisOutageTest), createJob has no fallback here: BulkJobPublisher's own
++        // Javadoc is explicit that a broker outage must fail LOUD, not silently let a job through
++        // that nothing will ever process.
++        assertThatThrownBy(() -> service.createJob(urls, "user-outage"))
++                .isInstanceOf(AmqpException.class);
++
++        assertThat(jobRepository.findAll())
++                .as("createJob is @Transactional and publishes last -- a publish failure must roll "
++                        + "back the job header row too, not leave it committed with no message ever "
++                        + "queued for bulk-processor")
++                .isEmpty();
++        assertThat(itemRepository.findAll())
++                .as("the line items saved earlier in the same transaction must roll back together "
++                        + "with the job header, not be left as orphaned rows pointing at a job that "
++                        + "was never actually persisted")
++                .isEmpty();
++    }
++}
+-- 
+2.43.0
+
