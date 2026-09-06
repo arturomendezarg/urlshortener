@@ -1,64 +1,64 @@
-# Documentación Técnica de Arquitectura: URL Shortener Enterprise
+# Technical Architecture Documentation: Enterprise URL Shortener
 
-## Resumen ejecutivo
+## Executive Summary
 
-Este documento es el resultado de un proceso de análisis de requerimientos, decomposición de tareas e ingeniería de arquitectura realizado por Art (ingeniero) con asistencia de Claude, para un prototipo de URL shortener a construir en 2-3 días. El objetivo del ejercicio no es solo entregar un shortener funcional, sino demostrar: comprensión de requerimientos, decomposición de tareas, ejecución acelerada por IA con trazabilidad y ownership del ingeniero, y manejo consciente de riesgos y trade-offs bajo un tiempo acotado.
+This document is the result of a requirements analysis, task decomposition, and architecture engineering process carried out by Art (engineer) with assistance from Claude, for a URL shortener prototype to be built in 2–3 days. The goal of the exercise is not only to deliver a functional shortener, but to demonstrate: requirements understanding, task decomposition, AI-accelerated execution with traceability and engineer ownership, and conscious management of risks and trade-offs under a constrained timeframe.
 
-Este documento cubre las decisiones ya tomadas, deja explícitas las que fueron deliberadamente simplificadas por presupuesto de tiempo, y define un plan de ejecución día a día con líneas de corte para que el alcance sea defendible ante cualquier revisor técnico.
+This document covers the decisions already made, makes explicit those deliberately simplified due to time constraints, and defines a day-by-day execution plan with cut lines so that the scope remains defensible to any technical reviewer.
 
 ---
 
 ## 1. Requirement Understanding
 
-**Requerimiento original (brief del ejercicio):** construir un URL shortener desde cero con APIs core, analíticas y "reliability features", demostrando ejecución de ingeniería acelerada por IA, en 2-3 días, cubriendo tres escenarios (greenfield, brownfield, ambiguo).
+**Original requirement (exercise brief):** build a URL shortener from scratch with core APIs, analytics, and "reliability features," demonstrating AI-accelerated engineering execution in 2–3 days, covering three scenarios (greenfield, brownfield, ambiguous).
 
-**Ambigüedades detectadas y cómo se normalizaron:**
+**Identified ambiguities and how they were normalized:**
 
-- El brief no especifica stack, persistencia, ni nivel de auth/analíticas → se resolvió en conversación directa con el stakeholder (ver decisiones en la sección 2).
-- "Reliability features" es vago → se normalizó a: cache de lectura para el path crítico de redirección, desacoplamiento asíncrono de analíticas, migraciones versionadas y auditable del esquema, y manejo explícito de fallos (Redis caído, broker caído, colisión de hash).
-- El escenario "brownfield" no puede ser literal porque no existe codebase previo (proyecto greenfield puro) → se decidió **simular** condiciones brownfield: se construye un V1 mínimo el Día 1 y se trata como sistema heredado a partir del Día 2, para poder demostrar razonamiento de evolución de código existente, análisis de impacto y regresión cero. Esto se declara explícitamente aquí para que no se lea como un sistema legacy real preexistente.
-- El nivel de "producción" esperado no está definido → se interpretó como: código con calidad de producción (modular, testeado, seguro) pero sin necesidad de desplegar a infraestructura cloud real paga, dado el timebox de 2-3 días (ver sección 9, Roadmap a GKE).
+- The brief does not specify the stack, persistence, or level of auth/analytics → resolved through direct conversation with the stakeholder (see decisions in Section 2).
+- "Reliability features" is vague → normalized to: read caching for the critical redirect path, asynchronous decoupling of analytics, versioned and auditable schema migrations, and explicit failure handling (Redis down, broker down, hash collision).
+- The "brownfield" scenario cannot be literal because there is no pre-existing codebase (a purely greenfield project) → it was decided to **simulate** brownfield conditions: build a minimal V1 on Day 1 and treat it as a legacy system starting on Day 2, in order to demonstrate reasoning about evolving existing code, impact analysis, and zero regression. This is stated explicitly here so it is not read as a real pre-existing legacy system.
+- The expected level of "production" readiness is not defined → interpreted as: production-quality code (modular, tested, secure) without the need to deploy to paid real-world cloud infrastructure, given the 2–3 day timebox (see Section 9, GKE Roadmap).
 
-## 2. Assumptions (supuestos de partida)
+## 2. Assumptions
 
-- Escala objetivo del prototipo: cientos de creaciones/día y miles de redirecciones/día (suficiente para demostrar el patrón de cache y async, no tráfico de producción real).
-- Single-region, sin requisitos de alta disponibilidad multi-zona real (se documenta el camino, no se implementa).
-- No hay requisitos de compliance regulatorio formal (GDPR/CCPA); la anonimización de IP se adopta como buena práctica, no como respuesta a una obligación legal específica.
-- Los enlaces "V1" y "V2" conviven bajo el mismo dominio raíz; el código corto debe ser indistinguible en forma para el usuario final (no se expone `/api/v1/` ni `/api/v2/` en el link que se comparte).
-- Se asume acceso a GitHub Codespaces (o Docker local equivalente) como entorno de ejecución; no se asume acceso a una cuenta de GCP con billing activo para este ejercicio.
+- Target prototype scale: hundreds of creations/day and thousands of redirects/day (enough to demonstrate the caching and async patterns, not real production traffic).
+- Single-region, with no real multi-zone high-availability requirements (the path is documented, not implemented).
+- There are no formal regulatory compliance requirements (GDPR/CCPA); IP anonymization is adopted as a best practice, not in response to a specific legal obligation.
+- "V1" and "V2" links coexist under the same root domain; the short code must be indistinguishable in form to the end user (neither `/api/v1/` nor `/api/v2/` is exposed in the shared link).
+- Access to GitHub Codespaces (or equivalent local Docker) is assumed as the execution environment; access to a GCP account with active billing is not assumed for this exercise.
 
 ---
 
 ## 3. Architecture Overview
 
-### 3.1 Componentes
+### 3.1 Components
 
-- **API Gateway (Spring Cloud Gateway):** único punto de entrada. Aplica el patrón **Strangler Fig**:
-  - `/api/v1/...` (plano de control de gestión) → Monolito Legacy (V1).
-  - `/api/v2/...` (plano de control de gestión) → Microservicios modernos (V2).
-  - `GET /{shortCode}` (plano de datos, la redirección real) → el Gateway **no** decide por prefijo de URL (el link público nunca debe llevar `/api/`), sino consultando un registro compartido de códigos: primero revisa si el código existe en el índice de V2 (Redis), y si no, delega al Monolito V1. Esto es lo que hace que Strangler Fig funcione de verdad para un shortener: el dominio público es uno solo y estable, aunque el backend detrás cambie con el tiempo.
-- **Legacy Monolith (V1):** Java/Spring Boot. Sistema original de acortamiento y redirección básica, deliberadamente simple (ver sección 1). PostgreSQL con Liquibase para control de esquema.
+- **API Gateway (Spring Cloud Gateway):** single entry point. Applies the **Strangler Fig** pattern:
+    - `/api/v1/...` (management control plane) → Monolito Legacy (V1).
+    - `/api/v2/...` (management control plane) → Microservicios modernos (V2).
+    - `GET /{shortCode}` (data plane, the actual redirect) → el Gateway **no** decide por prefijo de URL (the public link must never contain `/api/`), sino by querying a shared code registry: first checking whether the code exists in the V2 index (Redis), and if not, delegating to the V1 Monolith. This is what makes Strangler Fig genuinely work for a shortener: the public domain remains a single stable domain even as the backend behind it changes over time.
+- **Legacy Monolith (V1):** Java/Spring Boot. Original shortening and basic redirect system, deliberately simple (ver sección 1). PostgreSQL con Liquibase para control de esquema.
 - **Microservicios (V2):**
-  - **Shortener Service:** creación de URLs (alias personalizado, expiración, reglas de redirección condicional), protegido con OAuth2/OIDC.
-  - **Redirect & Cache Service:** lectura de alta velocidad; cache-aside con Redis, fallback a PostgreSQL si hay cache-miss o Redis no responde.
-  - **Analytics Worker:** consumidor asíncrono de RabbitMQ (cola `click-events`) que procesa clics de V1 y V2 sin bloquear la redirección.
-  - **Bulk Processor:** consumidor asíncrono de RabbitMQ (cola `bulk-url-jobs`, separada de `click-events` para no mezclar tráfico) que procesa creación masiva de URLs.
-- **Identity Provider (Keycloak):** emite y valida tokens OIDC. Los servicios V2 actúan como OAuth2 Resource Server (no implementan su propio Authorization Server). Se arranca con un `realm-export.json` versionado en el repo para no requerir configuración manual.
+    - **Shortener Service:** URL creation (custom alias, expiration, conditional redirect rules), protected with OAuth2/OIDC.
+    - **Redirect & Cache Service:** high-speed reads; cache-aside with Redis, falling back to PostgreSQL on cache miss or if Redis does not respond.
+    - **Analytics Worker:** asynchronous RabbitMQ consumer (`click-events` queue) that processes V1 and V2 clicks without blocking the redirect.
+    - **Bulk Processor:** asynchronous RabbitMQ consumer (`bulk-url-jobs` queue, separate from `click-events` to avoid mixing traffic) that processes bulk URL creation.
+- **Identity Provider (Keycloak):** issues and validates OIDC tokens. V2 services act as OAuth2 Resource Servers (they do not implement their own Authorization Server). It starts with a versioned `realm-export.json` in the repo to avoid manual configuration.
 
-### 3.2 Stack tecnológico
+### 3.2 Technology Stack
 
-| Categoría | Elección |
+| Category | Choice |
 |---|---|
-| Lenguaje | Java 17 / Spring Boot 3.x |
-| Persistencia | PostgreSQL (fuente de verdad) |
-| Cache | Redis (redirect cache-aside + rate limiting; **no** para contadores de clicks) |
-| Identity Provider | Keycloak (OIDC), servicios como Resource Server |
-| Mensajería | RabbitMQ (colas separadas: `click-events`, `bulk-url-jobs`) |
-| Migraciones | Liquibase |
-| Pruebas | JUnit 5, MockMvc, Testcontainers |
-| Entorno de ejecución | GitHub Codespaces (Docker-in-Docker) + clúster local kind/k3d |
+| Language | Java 17 / Spring Boot 3.x |
+| Persistence | PostgreSQL (source of truth) |
+| Cache | Redis (redirect cache-aside + rate limiting; **not** for click counters) |
+| Identity Provider | Keycloak (OIDC), services as Resource Servers |
+| Messaging | RabbitMQ (separate queues: `click-events`, `bulk-url-jobs`) |
+| Migrations | Liquibase |
+| Testing | JUnit 5, MockMvc, Testcontainers |
+| Execution environment | GitHub Codespaces (Docker-in-Docker) + local kind/k3d cluster |
 
-### 3.3 Flujo de control (redirección)
+### 3.3 Control Flow (Redirect)
 
 ```mermaid
 sequenceDiagram
@@ -103,13 +103,13 @@ sequenceDiagram
 
 ## 4. API & Data Model
 
-### 4.1 Endpoints principales
+### 4.1 Main Endpoints
 
-**V1 (legacy, sin auth):**
+**V1 (legacy, no auth):**
 - `POST /api/v1/urls` `{ longUrl }` → `{ shortCode, shortUrl }`
 - `GET /{shortCode}` → `301` (redirección pública)
 
-**V2 (moderno):**
+**V2 (modern):**
 - `POST /api/v2/urls` *(auth requerido)* `{ longUrl, customAlias?, expiresAt?, redirectRules? }` → `{ shortCode, shortUrl, ownerId }`
 - `GET /{shortCode}` → `301`/`302`, o `410 Gone` si expiró (redirección pública, sin auth)
 - `POST /api/v2/urls/bulk` *(auth requerido)* `{ urls: [{ longUrl, customAlias? }, ...] }` → `{ jobId, status: "PENDING", totalItems }`
@@ -118,7 +118,7 @@ sequenceDiagram
 - `DELETE /api/v2/urls/{shortCode}` *(auth requerido, solo dueño)* → revocación
 - `GET /api/v2/urls/{shortCode}/analytics` *(auth requerido, solo dueño)* → métricas agregadas desde `click_events`
 
-### 4.2 Modelo de datos (resumen)
+### 4.2 Data Model (Summary)
 
 - `urls` (V1): `id, short_code (unique), long_url, created_at, expires_at (nullable, agregado vía Liquibase en el escenario brownfield)`
 - `short_links` (V2): `id, short_code (unique), long_url, owner_user_id (FK, nullable si se permite anónimo), redirect_rules (jsonb), created_at, expires_at, is_active`
@@ -131,77 +131,77 @@ sequenceDiagram
 
 ## 5. Security
 
-- **AuthN/AuthZ:** OIDC vía Keycloak. Endpoints de creación, bulk, listado y analíticas requieren Bearer JWT válido; `GET /{shortCode}` (la redirección) permanece público por diseño.
-- **Prevención de open redirect / abuso de phishing:** toda `longUrl` se valida contra: esquema permitido (`http`/`https` solamente), rechazo de hosts internos/privados (RFC 1918, `localhost`, metadata endpoints de cloud) para evitar SSRF, y se documenta como mejora futura la verificación contra una lista de phishing/malware (ej. Google Safe Browsing API) si el tiempo no alcanza para implementarla.
-- **Rate limiting:** en `POST /api/v2/urls` y `/bulk`, usando Redis (ventana deslizante o token bucket) para mitigar abuso de creación masiva no autorizada.
-- **Manejo de secretos:**
-  - En Codespaces: credenciales de Postgres/RabbitMQ/Keycloak se inyectan como *Codespaces secrets* (repo/usuario), nunca se commitean.
-  - En Kubernetes: como `Secret` de K8s (con la salvedad documentada de que es solo base64, no cifrado en reposo — mejora futura: SOPS o sealed-secrets).
-  - Si se avanza hacia GCP real: Workload Identity Federation en vez de llaves JSON de service account.
-- **Slugs reservados:** códigos como `api`, `admin`, `health`, `actuator` quedan en una lista de exclusión para que nunca se asignen como alias personalizado.
+- **AuthN/AuthZ:** OIDC via Keycloak. Creation, bulk, listing, and analytics endpoints require a valid Bearer JWT; `GET /{shortCode}` (the redirect) remains public by design.
+- **Open redirect / phishing abuse prevention:** every `longUrl` is validated against: allowed scheme (`http`/`https` only), rejection of internal/private hosts (RFC 1918, `localhost`, cloud metadata endpoints) to prevent SSRF, with verification against a phishing/malware list (e.g. Google Safe Browsing API) documented as a future improvement if time is insufficient to implement it.
+- **Rate limiting:** on `POST /api/v2/urls` and `/bulk`, using Redis (sliding window or token bucket) to mitigate unauthorized bulk creation abuse.
+- **Secret Management:**
+    - En Codespaces: credenciales de Postgres/RabbitMQ/Keycloak se inyectan como *Codespaces secrets* (repo/usuario), nunca se commitean.
+    - En Kubernetes: como `Secret` de K8s (con la salvedad documentada de que es solo base64, no cifrado en reposo — mejora futura: SOPS o sealed-secrets).
+    - Si se avanza hacia GCP real: Workload Identity Federation en vez de llaves JSON de service account.
+- **Reserved slugs:** codes such as `api`, `admin`, `health`, `actuator` are kept on an exclusion list so they are never assigned as custom aliases.
 
 ---
 
 ## 6. Three Scenarios
 
-### Escenario A — Greenfield: Redirect & Cache Service de alta velocidad
+### Scenario A — Greenfield: High-Speed Redirect & Cache Service
 
-**Descomposición:**
+**Decomposition:**
 1. Contrato REST V2 para creación y resolución de URLs.
 2. Integración con Spring Data Redis (cache-aside).
 3. Generador de hash Base62 con manejo de colisiones (reintento + fallback a mayor longitud).
 4. Pruebas unitarias e integración con Testcontainers.
 
-**AI-Assisted Execution (trazabilidad):**
+**AI-Assisted Execution (Traceability):**
 - Prompt inicial: *"Actúa como experto en Spring Boot. Genera un servicio de redirección que consulte Redis y haga fallback a PostgreSQL si el caché expira."*
 - Intervención humana: la IA no manejó el caso de Redis caído (no solo cache-miss, sino conexión rechazada). Se rechazó la propuesta inicial y se añadió un Circuit Breaker (Resilience4j) para que una caída de Redis no tumbe el redirect, degradando a consulta directa a Postgres.
 
 **Validation:** prueba de carga local simulando concurrencia, verificando que el fallback a Postgres no genera errores 5xx cuando Redis está caído (chaos test manual: apagar el contenedor de Redis a mitad de la prueba).
 
-### Escenario B — Brownfield: Evolución del Monolito V1
+### Scenario B — Brownfield: Evolution of the V1 Monolith
 
-**Descomposición:**
+**Decomposition:**
 1. Análisis de impacto del esquema actual de V1.
 2. Changelog de Liquibase (`changelog-v1.2.xml`) agregando `expires_at` sin romper filas existentes.
 3. Characterization tests (JUnit + MockMvc) para congelar el comportamiento actual de V1 antes de tocarlo.
 4. Refactor quirúrgico para que V1 también publique eventos de clic a RabbitMQ.
 
-**AI-Assisted Execution (trazabilidad):**
+**AI-Assisted Execution (Traceability):**
 - Prompt inicial: *"Genera un script de Liquibase para agregar una columna de expiración a la tabla legacy de URLs."*
 - Intervención humana: la IA propuso la columna como `nullable="false"`, lo cual rompería las filas existentes. Se rechazó y se ajustó a `nullable="true"` con valor por defecto, preservando compatibilidad hacia atrás.
 
 **Validation:** characterization tests ejecutados antes y después del cambio — cero regresiones en las respuestas de la API V1.
 
-### Escenario C — Ambiguous: "Enlaces inteligentes y privados"
+### Scenario C — Ambiguous: "Smart and Private Links"
 
-**Requerimiento original del negocio:** *"Queremos que los enlaces sean inteligentes, expiren bien y respeten la privacidad pero den métricas."*
+**Original business requirement:** *"We want links to be smart, expire properly, and respect privacy while still providing metrics."*
 
-**Desambiguación (supuestos del tech lead):** "Inteligente" → redirección condicional simple por tipo de dispositivo (móvil vs. desktop) vía `redirect_rules`. "Expirar bien" → campo `expires_at`, devolviendo `410 Gone` si venció. "Respetar privacidad" → anonimizar el último octeto de la IP antes de persistir el evento de clic.
+**Disambiguation (tech lead assumptions):** "Inteligente" → redirección condicional simple por tipo de dispositivo (móvil vs. desktop) vía `redirect_rules`. "Expirar bien" → campo `expires_at`, devolviendo `410 Gone` si venció. "Respetar privacidad" → anonimizar el último octeto de la IP antes de persistir el evento de clic.
 
-**Descomposición:**
-1. Extender el DTO de creación para aceptar `redirectRules` y `expiresAt`.
-2. Middleware de anonimización de IP en el pipeline de analíticas (antes de insertar en `click_events`).
-3. Validación de caducidad en el momento de la redirección.
+**Decomposition:**
+1. Extend the creation DTO to accept `redirectRules` and `expiresAt`.
+2. IP anonymization middleware in the analytics pipeline (before inserting into `click_events`).
+3. Expiration validation at redirect time.
 
-**Validation:** pruebas unitarias verificando formato anonimizado de IP (`192.168.1.0` en vez de `192.168.1.45`) y que un enlace vencido responde `410` en vez de redirigir.
+**Validation:** unit tests verifying the anonymized IP format (`192.168.1.0` instead of `192.168.1.45`) and that an expired link returns `410` instead of redirecting.
 
 ---
 
-## 7. Plan de Ejecución (Día a Día)
+## 7. Execution Plan (Day by Day)
 
-Supuesto de disponibilidad: 6-8 horas dedicadas por día. Prioridad global si el tiempo se acorta (confirmada con el stakeholder): **proteger los 3 escenarios completos por encima de todo** — el orden de recorte es (1) Kubernetes corriendo en vivo → cae a docker-compose con manifiestos versionados pero no ejecutados, (2) OIDC completo → cae a JWT simple con Spring Security, (3) Bulk asíncrono → cae a bulk síncrono. Nunca se recorta un escenario a medias para salvar una pieza de infraestructura.
+Availability assumption: 6–8 dedicated hours per day. Overall priority if time is shortened (confirmed with the stakeholder): **protect all 3 scenarios above everything else** — the cut order is (1) Kubernetes running live → fall back to docker-compose with versioned but unexecuted manifests, (2) full OIDC → fall back to simple JWT with Spring Security, (3) asynchronous Bulk → fall back to synchronous bulk. A scenario is never partially cut to save an infrastructure component.
 
-**Día 1 — Cimientos + V1 mínimo + arranque Greenfield**
-- Must-ship: scaffold del monorepo; devcontainer de Codespaces (Docker-in-Docker + feature kind/k3d); docker-compose (Postgres, Redis, RabbitMQ, Keycloak); V1 monolito mínimo (Liquibase inicial, crear + redirigir, sin auth); Gateway con rutas básicas; contrato OpenAPI V2 + generador Base62.
-- Corte de emergencia: Gateway puede quedar como stub sin enrutamiento real si hace falta tiempo.
+**Day 1 — Foundations + Minimal V1 + Greenfield Start**
+- Must-ship: monorepo scaffold; Codespaces devcontainer (Docker-in-Docker + kind/k3d feature); docker-compose (Postgres, Redis, RabbitMQ, Keycloak); minimal V1 monolith (initial Liquibase, create + redirect, no auth); Gateway with basic routes; OpenAPI V2 contract + Base62 generator.
+- Emergency cut: the Gateway may remain as a stub without real routing if time is needed.
 
-**Día 2 — Brownfield + Redirect&Cache (Greenfield) + Auth**
-- Must-ship: escenario Brownfield completo (Liquibase + characterization tests + V1 emitiendo eventos); Redirect & Cache Service con Redis y Circuit Breaker; Analytics Worker; Keycloak levantado y servicios V2 como Resource Server; escenario Ambiguous (redirección por dispositivo, expiración, anonimización de IP).
-- Corte de emergencia: si Keycloak no cierra a tiempo, cae a JWT simple documentando la decisión.
+**Day 2 — Brownfield + Redirect&Cache (Greenfield) + Auth**
+- Must-ship: complete Brownfield scenario (Liquibase + characterization tests + V1 emitting events); Redirect & Cache Service with Redis and Circuit Breaker; Analytics Worker; Keycloak running and V2 services as Resource Servers; Ambiguous scenario (device-based redirection, expiration, IP anonymization).
+- Emergency cut: if Keycloak cannot be completed in time, fall back to simple JWT and document the decision.
 
-**Día 3 — Bulk async + Kubernetes local + seguridad + pruebas + documentación**
-- Must-ship: Bulk Processor completo (consumer, endpoint de estado, idempotencia, dead-letter queue); validación anti-open-redirect y rate limiting; manifiestos de K8s desplegados en kind dentro de Codespaces; pruebas de integración con Testcontainers; documentación final (README, `AI_USAGE_LOG.md`, colección Postman).
-- Corte de emergencia: si kind da problemas de recursos, se demuestra todo con docker-compose y los manifiestos de K8s quedan versionados pero no ejecutados en vivo (limitación aceptada y declarada, no oculta).
+**Day 3 — Async Bulk + Local Kubernetes + Security + Testing + Documentation**
+- Must-ship: complete Bulk Processor (consumer, status endpoint, idempotency, dead-letter queue); anti-open-redirect validation and rate limiting; K8s manifests deployed in kind inside Codespaces; integration tests with Testcontainers; final documentation (README, `AI_USAGE_LOG.md`, Postman collection).
+- Emergency cut: if kind has resource problems, demonstrate everything with docker-compose and leave the K8s manifests versioned but not executed live (an accepted and declared limitation, not a hidden one).
 
 ---
 
@@ -220,16 +220,16 @@ Esto da trazabilidad continua (no solo 3 ejemplos aislados) para sustentar "dept
 
 ---
 
-### 8.1 Flujo de Git y Pull Requests
+### 8.1 Git and Pull Request Flow
 
 - **Ramas:** una rama por tarea del plan (sección 7), nombrada `feature/<escenario-o-tarea>` (ej. `feature/greenfield-redirect-service`, `feature/brownfield-liquibase-expiration`), para que el historial de ramas/PRs sea el espejo exacto de la decomposición de tareas ya documentada.
 - **Dos identidades reales de GitHub, no solo una convención de commits:** `artmendezarg` (el ingeniero, dueño del repo) y `art-claude-dev` (cuenta dedicada, agregada como colaboradora con permiso de escritura, usada exclusivamente para el trabajo generado por la IA). Esto convierte la revisión de PRs en una revisión real forzada por GitHub — el ingeniero no puede aprobar sus propios PRs, así que si los PRs de tareas asistidas por IA los abre `art-claude-dev`, la aprobación de `artmendezarg` es una revisión genuina, no un bypass de administrador.
 - **Commits:** Conventional Commits. Los commits generados por la IA usan la identidad git de `art-claude-dev` (nombre `Claude AI Assistant`, email verificado de esa cuenta) para que GitHub les atribuya correctamente el autor/avatar en el historial. Los commits de ajuste manual del ingeniero usan la identidad de `artmendezarg`. Regla dura: nunca `git commit --amend` sobre un commit de la IA después de un ajuste humano — siempre un commit nuevo, para que el diff "propuesto por la IA vs. corregido por el ingeniero" quede visible en el historial para siempre, con autoría distinguible por cuenta.
 - **Disparo del trabajo:** manual, dentro del Codespace. El ingeniero decide cuándo invocar a Claude Code para cada tarea; los cambios se confirman y suben bajo la identidad `art-claude-dev`, y el ingeniero revisa el diff antes de aprobar. Se descarta como método principal la automatización vía GitHub Action (`@claude` en un issue abriendo el PR por sí sola) porque el rubro del ejercicio pide explícitamente ejecución liderada por el ingeniero ("engineer-led execution accelerated by AI, not autonomous orchestration"); queda documentada como capacidad adicional disponible, usada puntualmente y siempre con aprobación manual, no como el flujo por defecto.
 - **Plantilla de PR** (`.github/PULL_REQUEST_TEMPLATE.md`) con secciones fijas: tarea/intención original, prompt(s) usados, resumen de lo generado por la IA, resultado de los quality gates (build, tests, lint, dependency scan — sección 11), y un campo obligatorio **"Decisión del ingeniero"** con tres casos:
-  - *Aceptado:* `artmendezarg` aprueba el PR abierto por `art-claude-dev` y lo mergea.
-  - *Rechazado:* se cierra el PR sin mergear, con un comentario de review explicando la razón, y se agrega la entrada correspondiente en `AI_USAGE_LOG.md` (sección 8) — la razón queda tanto en el historial técnico del PR como en el resumen narrativo del proyecto.
-  - *Ajustado:* se agrega un commit nuevo sobre la misma rama, bajo la identidad de `artmendezarg` (o una nueva iteración de `art-claude-dev` si se le pide a la IA corregir algo puntual); el PR conserva todos los commits visibles, con autoría distinguible, nunca se reescribe el original.
+    - *Aceptado:* `artmendezarg` aprueba el PR abierto por `art-claude-dev` y lo mergea.
+    - *Rechazado:* se cierra el PR sin mergear, con un comentario de review explicando la razón, y se agrega la entrada correspondiente en `AI_USAGE_LOG.md` (sección 8) — la razón queda tanto en el historial técnico del PR como en el resumen narrativo del proyecto.
+    - *Ajustado:* se agrega un commit nuevo sobre la misma rama, bajo la identidad de `artmendezarg` (o una nueva iteración de `art-claude-dev` si se le pide a la IA corregir algo puntual); el PR conserva todos los commits visibles, con autoría distinguible, nunca se reescribe el original.
 - **Branch protection en `main`:** push directo bloqueado para todos, incluido el dueño del repo (`enforce_admins: true`); merge solo vía PR con 1 aprobación requerida y, una vez exista el pipeline de CI (sección 11), con los checks en verde. Al haber dos cuentas reales, la aprobación requerida es una revisión humana genuina, no una formalidad.
 - **Etiquetas de PR:** `ai:accepted`, `ai:rejected`, `ai:adjusted` para que el historial de PRs sea escaneable de un vistazo por cualquier revisor externo sin tener que leer cada uno.
 
@@ -251,7 +251,7 @@ Controles concretos (no solo declarados — verificados vía la API de GitHub al
 
 ## 9. Setup Instructions
 
-**Entorno recomendado: GitHub Codespaces**
+**Recommended environment: GitHub Codespaces**
 1. Botón `<> Code` → pestaña Codespaces → `Create codespace on main`. El devcontainer preconfigura Java 17, Maven, Docker (feature `docker-outside-of-docker`, no Docker-in-Docker -- corrección respecto a una versión anterior de este párrafo: `kind` recomienda evitar DinD cuando el host ya expone su propio socket de Docker, que es exactamente lo que hace ese feature) y `kubectl`/`kind`/`helm`, instalados directamente por `.devcontainer/setup.sh` (ese script documenta por qué: la feature de terceros para Kubernetes falló al construirse en la primera versión del devcontainer).
 2. Levantar dependencias de infraestructura para desarrollo día a día:
    ```bash
@@ -270,9 +270,9 @@ Controles concretos (no solo declarados — verificados vía la API de GitHub al
    Detalle completo (cómo llegar a cada servicio desde fuera del clúster, decisiones de diseño,
    troubleshooting, teardown) en [`infra/k8s/README.md`](./infra/k8s/README.md).
 
-**Pruebas con Postman:** colección en `docs/url-shortener-enterprise.postman_collection.json`, con entornos preconfigurados para V1, V2, expiración y bulk asíncrono.
+**Postman testing:** colección en `docs/url-shortener-enterprise.postman_collection.json`, con entornos preconfigurados para V1, V2, expiración y bulk asíncrono.
 
-**Roadmap a GKE (documentado, no ejecutado en este ejercicio):** Artifact Registry para imágenes, GKE Autopilot, Cloud SQL para Postgres, Memorystore para Redis, Workload Identity Federation en vez de llaves de service account. Se documenta esta ruta para demostrar criterio de productización sin consumir el timebox del prototipo en credenciales y billing de GCP.
+**GKE Roadmap (documented, not executed in this exercise):** Artifact Registry para imágenes, GKE Autopilot, Cloud SQL para Postgres, Memorystore para Redis, Workload Identity Federation en vez de llaves de service account. Se documenta esta ruta para demostrar criterio de productización sin consumir el timebox del prototipo en credenciales y billing de GCP.
 
 ---
 
@@ -285,21 +285,21 @@ Controles concretos (no solo declarados — verificados vía la API de GitHub al
 
 ## 11. Observability & Quality Gates
 
-**Estado:** las piezas de esta sección ya están implementadas (no solo planeadas) desde el PR de "quality gates" (ver AI_USAGE_LOG.md) — se declara explícitamente para que quede trazable el momento en que dejaron de ser una promesa de diseño y pasaron a ser código real.
+**Status:** the components in this section have already been implemented (not merely planned) since the "quality gates" PR (see AI_USAGE_LOG.md) — this is explicitly stated so the point at which they stopped being a design promise and became real code remains traceable.
 
 - **Análisis estático (Checkstyle + SpotBugs):** declarados como `<build><plugins>` en el `pom.xml` raíz (no `<pluginManagement>`), para que los módulos hijo los hereden y ejecuten automáticamente en la fase `verify` sin repetir configuración. Checkstyle usa un ruleset propio y deliberadamente acotado (`checkstyle.xml`, en la raíz del repo) — arranca como gate real (puede fallar el build) sin generar una ola de violaciones de estilo sobre código ya escrito; se puede endurecer progresivamente. SpotBugs analiza el bytecode compilado buscando patrones de bugs conocidos, con umbral "Medium".
 - **Escaneo de dependencias (seguridad):** se optó por **GitHub Dependabot** (`.github/dependabot.yml` + vulnerability alerts habilitadas a nivel de repo) en vez de OWASP Dependency-Check como plugin de Maven, que era el plan original. Razón del cambio: Dependency-Check depende de la NVD API, que sin una API key registrada aplica un rate-limit agresivo y puede volver el job de CI lento o inestable — mal encaje para un pipeline que corre en cada PR de un ejercicio con tiempo acotado. Dependabot es nativo de GitHub, no requiere infraestructura adicional, y cubre el mismo objetivo.
 - **Observabilidad (Micrometer/Actuator):** `spring-boot-starter-actuator` + `micrometer-registry-prometheus` en el Monolito V1 y el API Gateway (los dos servicios ejecutables hasta ahora), con `/actuator/health`, `/actuator/info` y `/actuator/prometheus` expuestos — suficiente para verificar en vivo latencia y salud sin montar un stack de Grafana completo para el ejercicio. Pendiente: agregar lo mismo a los servicios V2 conforme se construyan (Día 2/3).
 - **Performance:** honestamente, todavía no hay un gate automatizado de performance (ej. un umbral de latencia que falle el build). La validación de performance planeada (prueba de carga + chaos test de Redis, ver sección 6 Escenario A) es manual y ejecutable, no una gate de CI — se declara así explícitamente en vez de aparentar una cobertura que no existe.
 - **Pipeline de CI** (`.github/workflows/ci.yml`), corre en cada PR contra `main` y en cada push a `main`, con tres jobs:
-  - *Markdown Lint* — valida la documentación (`.markdownlint-cli2.jsonc` desactiva reglas ruidosas como longitud de línea y HTML inline, necesario por los diagramas Mermaid).
-  - *Secret Scanning* (`gitleaks`) — corre desde el inicio del repo, aunque al principio solo hubiera documentación, para nunca dejar que una credencial se cuele en el historial.
-  - *Build and Test* — corre `mvn verify`, que es donde quedan integrados Checkstyle y SpotBugs (análisis estático) como plugins de Maven — no como steps de CI separados.
+    - *Markdown Lint* — valida la documentación (`.markdownlint-cli2.jsonc` desactiva reglas ruidosas como longitud de línea y HTML inline, necesario por los diagramas Mermaid).
+    - *Secret Scanning* (`gitleaks`) — corre desde el inicio del repo, aunque al principio solo hubiera documentación, para nunca dejar que una credencial se cuele en el historial.
+    - *Build and Test* — corre `mvn verify`, que es donde quedan integrados Checkstyle y SpotBugs (análisis estático) como plugins de Maven — no como steps de CI separados.
 - Estos tres jobs son *required status checks* en la protección de `main` (sección 8.1).
 
 ## 12. Risks & Guardrails
 
-| Riesgo | Guardrail / decisión |
+| Risk | Guardrail / decision |
 |---|---|
 | Pérdida silenciosa de eventos de clic si RabbitMQ está caído al publicar (fire-and-forget) | Aceptado como riesgo para analíticas (no crítico); documentado explícitamente, no oculto. Mejora futura: patrón outbox. |
 | Colisión de hash Base62 bajo concurrencia extrema | Restricción de unicidad a nivel de base de datos + reintento; mejora futura: generador tipo Snowflake ID. |

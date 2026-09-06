@@ -1,52 +1,51 @@
-# URL Shortener — Prototipo (AI-Assisted Engineering)
+# URL Shortener — Prototype (AI-Assisted Engineering)
 
-## Qué es esto
+## What is this
 
-Prototipo de un servicio de acortamiento de URLs, construido en 2-3 días como ejercicio de **ejecución de ingeniería acelerada por IA**: el objetivo no es solo el sistema en sí, sino demostrar comprensión de requerimientos, decomposición de tareas, ejecución disciplinada con IA con trazabilidad completa, y manejo consciente de riesgos bajo un tiempo acotado. La metodología y el detalle técnico completo están en [`ARCHITECTURE.md`](./ARCHITECTURE.md); este documento es el resumen ejecutivo.
+Prototype of a URL shortening service, built in 2–3 days as an exercise in **AI-assisted accelerated engineering**: the goal is not only the system itself, but also to demonstrate requirements understanding, task decomposition, disciplined AI-assisted execution with full traceability, and conscious risk management under a constrained timebox. The complete methodology and technical details are documented in [`ARCHITECTURE.md`](./ARCHITECTURE.md); this document is the executive summary.
 
-## Plan y Rationale
+## Plan and Rationale
 
-- **Stack:** Java 17 / Spring Boot 3.x, PostgreSQL (fuente de verdad), Redis (cache de redirect + rate limiting, nunca contadores), RabbitMQ (colas separadas para analíticas y bulk), Keycloak (OIDC).
-- **Alcance:** completo — auth OIDC real, bulk creation asíncrono, custom alias, expiración, analytics enriquecido. Se optó por el nivel más ambicioso en ambos ejes de forma deliberada, con un plan explícito de qué recortar primero si el tiempo se acorta (ver abajo).
-- **Despliegue:** Kubernetes local (`kind`/`k3d`) dentro de GitHub Codespaces, con una ruta a GKE documentada pero no ejecutada — se prioriza el tiempo de ingeniería sobre gastar el timebox en credenciales y billing de un proveedor cloud real.
-- **Arquitectura:** patrón Strangler Fig con un Monolito V1 y Microservicios V2, donde V1 es una **simulación didáctica** de un sistema heredado (no existe legacy real; se construye mínimo el Día 1 y se trata como heredado desde el Día 2) — declarado así explícitamente para que sea defendible ante cualquier revisor.
-- **Plan día a día** (detalle completo en `ARCHITECTURE.md` §7): Día 1 cimientos + V1 mínimo + arranque Greenfield; Día 2 Brownfield + Redirect&Cache + Auth; Día 3 Bulk async + Kubernetes local + seguridad + pruebas + documentación.
-- **Prioridad de recorte si el tiempo se acorta** (confirmada explícitamente): proteger los 3 escenarios (Greenfield/Brownfield/Ambiguous) por encima de todo. Orden de corte: (1) Kubernetes en vivo → docker-compose + manifiestos sin ejecutar, (2) OIDC completo → JWT simple, (3) Bulk asíncrono → bulk síncrono.
+- **Stack:** Java 17 / Spring Boot 3.x, PostgreSQL (source of truth), Redis (redirect cache + rate limiting, never counters), RabbitMQ (separate queues for analytics and bulk), Keycloak (OIDC).
+- **Scope:** complete — real OIDC auth, asynchronous bulk creation, custom aliases, expiration, enriched analytics. The most ambitious level on both axes was deliberately chosen, with an explicit plan for what to cut first if time runs short (see below).
+- **Deployment:** local Kubernetes (`kind`/`k3d`) inside GitHub Codespaces, with a documented GKE path that was not executed — engineering time is prioritized over spending the timebox on credentials and billing for a real cloud provider.
+- **Architecture:** Strangler Fig pattern with a V1 Monolith and V2 Microservices, where V1 is an **educational simulation** of a legacy system (there is no real legacy system; a minimum version is built on Day 1 and treated as legacy from Day 2) — explicitly stated so the approach is defensible to any reviewer.
+- **Day-by-day plan** (full details in `ARCHITECTURE.md` §7): Day 1 foundations + minimal V1 + Greenfield kickoff; Day 2 Brownfield + Redirect & Cache + Auth; Day 3 asynchronous Bulk + local Kubernetes + security + testing + documentation.
+- **Cutback priority if time runs short** (explicitly confirmed): protect the 3 scenarios (Greenfield/Brownfield/Ambiguous) above all else. Cut order: (1) live Kubernetes → docker-compose + manifests without execution, (2) full OIDC → simple JWT, (3) asynchronous Bulk → synchronous bulk.
 
-Racional completo de cada decisión en `ARCHITECTURE.md` §3.4 (Key Decisions).
+Full rationale for each decision is in `ARCHITECTURE.md` §3.4 (Key Decisions).
 
 ## Artifacts
 
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — arquitectura, los tres escenarios, setup, testing, seguridad, riesgos y flujo de git/PR.
-- `README.md` (este documento) — resumen ejecutivo.
-- [`.github/PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST_TEMPLATE.md) — plantilla de trazabilidad ingeniero↔IA para cada cambio.
-- [`infra/k8s/`](./infra/k8s/) — manifiestos de Kubernetes y script de despliegue a `kind` (ver `infra/k8s/README.md`).
-- Pendiente: colección Postman (`ARCHITECTURE.md` §9 la referencia; todavía no existe en el repo).
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — architecture, the three scenarios, setup, testing, security, risks, and the git/PR workflow.
+- `README.md` (this document) — executive summary.
+- [`.github/PULL_REQUEST_TEMPLATE.md`](./.github/PULL_REQUEST_TEMPLATE.md) — engineer↔AI traceability template for every change.
+- [`infra/k8s/`](./infra/k8s/) — Kubernetes manifests and deployment script for `kind` (see `infra/k8s/README.md`).
+- Pending: Postman collection (`ARCHITECTURE.md` §9 is the reference; it does not yet exist in the repo).
 
-## Riesgos, Trade-offs y Validación
+## Risks, Trade-offs and Validation
 
-Los riesgos y guardrails completos están en `ARCHITECTURE.md` §12; los más relevantes: pérdida silenciosa de eventos de clic si RabbitMQ cae en el instante de publicar (aceptado, no crítico, mitigable a futuro con patrón outbox), y abuso del shortener para phishing/open-redirect (mitigado con validación de esquema/host en la creación). Los trade-offs de diseño (Monolito+Microservicios vs. todo de una vez, Redis cache vs. DB directa, Keycloak vs. Authorization Server propio, bulk async vs. síncrono) están detallados en §14, cada uno con su justificación. La validación se apoya en pruebas unitarias, characterization tests para el escenario brownfield, e integración con Testcontainers (Postgres/Redis/RabbitMQ reales) — detalle en §10.
+The complete risks and guardrails are in `ARCHITECTURE.md` §12; the most relevant are silent loss of click events if RabbitMQ fails at the moment of publishing (accepted, non-critical, future mitigation with the outbox pattern), and abuse of the shortener for phishing/open redirects (mitigated through scheme/host validation during creation). The design trade-offs (Monolith + Microservices vs. building everything at once, Redis cache vs. direct DB access, Keycloak vs. a custom Authorization Server, asynchronous vs. synchronous bulk) are detailed in §14, each with its rationale. Validation relies on unit tests, characterization tests for the brownfield scenario, and integration testing with Testcontainers (real Postgres/Redis/RabbitMQ) — see §10 for details.
 
 ## Assumptions
 
-Resumen (detalle en `ARCHITECTURE.md` §2): escala de prototipo (no tráfico de producción real); single-region; sin requisitos formales de compliance (la anonimización de IP es buena práctica, no una obligación legal específica); el link público es indistinguible entre V1 y V2; se asume Codespaces/Docker local, no una cuenta de GCP con billing activo.
+Summary (details in `ARCHITECTURE.md` §2): prototype scale (no real production traffic); single-region; no formal compliance requirements (IP anonymization is a good practice, not a specific legal obligation); the public link is indistinguishable between V1 and V2; Codespaces/local Docker is assumed, not a GCP account with active billing.
 
 ## Limitations
 
-Resumen (detalle en `ARCHITECTURE.md` §13): consistencia eventual de unos segundos en analíticas; sin almacenamiento persistente en el clúster local kind/k3d; sin verificación contra listas externas de phishing/malware; sin despliegue real a GCP dentro de este ejercicio.
+Summary (details in `ARCHITECTURE.md` §13): analytics may be eventually consistent by a few seconds; no persistent storage in the local kind/k3d cluster; no verification against external phishing/malware lists; no actual GCP deployment within this exercise.
 
 ## Quickstart
 
-Instrucciones completas en `ARCHITECTURE.md` §9. Resumen:
-1. Abrir el repo en GitHub Codespaces (preconfigura Java 17, Docker-in-Docker, `kind`/`k3d`).
+Full instructions are in `ARCHITECTURE.md` §9. Summary:
+1. Open the repository in GitHub Codespaces (preconfigured with Java 17, Docker-in-Docker, `kind`/`k3d`).
 2. `docker-compose up -d` (Postgres, Redis, RabbitMQ, Keycloak).
 3. `mvn clean spring-boot:run`.
 
-## Estado actual
+## Current Status
 
-Días 1 y 2 completos (V1 mínimo, Gateway, contrato V2, Brownfield, Redirect & Cache con Redis y
-Circuit Breaker, Analytics Worker, Keycloak/OIDC). Día 3 en curso: Bulk Processor, validación
-anti-open-redirect y rate limiting, y manifiestos de Kubernetes desplegados en `kind` ya
-completos y mergeados a `main`; quedan pendientes cobertura de integración adicional y la
-documentación final (colección Postman, esta sección). Historial completo, PR por PR, en
-`AI_USAGE_LOG.md`.
+Days 1 and 2 complete (minimal V1, Gateway, V2 contract, Brownfield, Redirect & Cache with Redis and
+Circuit Breaker, Analytics Worker, Keycloak/OIDC). Day 3 in progress: Bulk Processor, anti-open-redirect
+validation, and rate limiting, with Kubernetes manifests deployed to `kind` already completed and merged
+into `main`; additional integration coverage and final documentation remain pending (Postman collection,
+this section). The complete history, PR by PR, is in `AI_USAGE_LOG.md`.
