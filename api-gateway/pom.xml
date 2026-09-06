@@ -54,7 +54,7 @@
     <!--
       Reactive Redis client for DynamicShortCodeRoutingFilter: the Gateway's Netty/WebFlux stack
       cannot block a thread waiting on the blocking Jedis/Lettuce-sync client the way
-      v2-shortener-service's servlet-stack Redis lookup does -- see that filter's own Javadoc.
+      v2-shortener-service's servlet-stack Redis lookup does — see that filter's own Javadoc.
     -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -80,7 +80,7 @@
       <scope>test</scope>
     </dependency>
     <!-- Real Redis (GenericContainer), same approach v2-shortener-service's own Redis
-         integration tests already use -- see ShortLinkServiceIntegrationTest. -->
+         integration tests already use — see ShortLinkServiceIntegrationTest. -->
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers</artifactId>
