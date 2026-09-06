@@ -25,12 +25,14 @@ spec:
               command: ["redis-cli", "ping"]
             initialDelaySeconds: 3
             periodSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 6
           livenessProbe:
             exec:
               command: ["redis-cli", "ping"]
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
             failureThreshold: 6
           resources:
             requests:

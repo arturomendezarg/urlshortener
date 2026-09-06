@@ -69,12 +69,27 @@ spec:
             # callers, never used for this pod's own routing, and localhost:8084 is exactly how
             # an external caller reaches this Service too, via kind's extraPortMapping (see
             # infra/k8s/kind-config.yaml) -- the default already happens to be correct here.
+          # A slow start is not a hang, and initialDelaySeconds cannot tell them apart: it
+          # picks one fixed number that is either too short (the container is killed while
+          # still booting) or too long (a real hang goes undetected for that whole window).
+          # startupProbe is the mechanism for exactly this -- it holds readiness and liveness
+          # off until the app answers once, then hands over to them unchanged and strict.
+          # 30 x 10s = up to 5 minutes to boot, which a JVM sharing a single-node cluster with
+          # four other JVMs, Postgres, Redis, RabbitMQ and Keycloak genuinely needs.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8084
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
               port: 8084
             initialDelaySeconds: 15
             periodSeconds: 5
+            timeoutSeconds: 5
             failureThreshold: 12
           livenessProbe:
             httpGet:
@@ -82,6 +97,7 @@ spec:
               port: 8084
             initialDelaySeconds: 30
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 6
           resources:
             requests:
