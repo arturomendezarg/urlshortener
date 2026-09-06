@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -130,6 +132,12 @@ class KeycloakResourceServerIntegrationTest {
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
+        // Spring Boot exposes /actuator/health/{readiness,liveness} on its own once it detects
+        // it is running on Kubernetes. This JVM is not, so the probes have to be asked for
+        // explicitly — otherwise those paths would 404 here and
+        // kubernetesProbePathsArePubliclyReachableWithNoToken would fail for a reason that has
+        // nothing to do with the security rule it exists to pin down.
+        registry.add("management.endpoint.health.probes.enabled", () -> "true");
         registry.add(
                 "spring.security.oauth2.resourceserver.jwt.issuer-uri",
                 () -> keycloakBaseUrl() + "/realms/" + REALM);
@@ -179,6 +187,25 @@ class KeycloakResourceServerIntegrationTest {
     void actuatorHealthIsPubliclyReachableWithNoToken() {
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "http://localhost:" + appPort + "/actuator/health", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    /**
+     * Regression test for a defect this suite used to miss entirely. The test above asserts the
+     * exact path {@code /actuator/health}, and {@link SecurityConfig} used to permit exactly
+     * that — so the two agreed, both were green, and the sub-paths Kubernetes actually probes
+     * were left behind {@code .anyRequest().authenticated()}, answering 401 to every kubelet
+     * probe. The pod never became Ready and was terminated once its startup probe budget
+     * expired, with a fully started application inside it. Asserting the exact path was never
+     * enough: these two are the paths that have to be public for this service to run under
+     * Kubernetes at all.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"/actuator/health/readiness", "/actuator/health/liveness"})
+    void kubernetesProbePathsArePubliclyReachableWithNoToken(String probePath) {
+        ResponseEntity<String> response = restTemplate.getForEntity(
+                "http://localhost:" + appPort + probePath, String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
     }

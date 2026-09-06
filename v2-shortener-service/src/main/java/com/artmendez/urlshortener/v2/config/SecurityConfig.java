@@ -29,6 +29,18 @@ import org.springframework.security.web.SecurityFilterChain;
  *       public: it is the link a browser follows with no Authorization header at all, per
  *       ARCHITECTURE.md section 5 and the OpenAPI contract's own note that this path is
  *       deliberately outside the authenticated {@code /api/v2} contract.
+ *   <li>{@code /actuator/health/**} is permitted separately from {@code /actuator/health}, and
+ *       that is not redundancy: an exact matcher does NOT cover the
+ *       {@code /actuator/health/readiness} and {@code /actuator/health/liveness} sub-paths that
+ *       Spring Boot creates on its own once it detects it is running on Kubernetes. Those are
+ *       precisely the paths a kubelet probes, with no Authorization header, so with only the
+ *       exact matcher every probe got a 401 — the pod never turned Ready, and Kubernetes
+ *       eventually terminated a perfectly healthy container when its startup probe budget ran
+ *       out. This service is the only OAuth2 Resource Server in the monorepo, which is why it
+ *       was the only one affected. Found by running the stack on a real cluster, not by any
+ *       test: {@code KeycloakResourceServerIntegrationTest} already asserted that
+ *       {@code /actuator/health} was public, and passed the whole time. It now asserts the two
+ *       probe paths as well. See AI_USAGE_LOG.md.
  * </ul>
  */
 @Configuration
@@ -40,7 +52,8 @@ public class SecurityConfig {
         http.csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus")
+                        .requestMatchers("/actuator/health", "/actuator/health/**",
+                                "/actuator/info", "/actuator/prometheus")
                         .permitAll()
                         .requestMatchers(HttpMethod.GET, "/{shortCode}")
                         .permitAll()
