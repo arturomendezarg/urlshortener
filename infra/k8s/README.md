@@ -1,36 +1,59 @@
-# Local Kubernetes deployment (kind)
+# Local Kubernetes deployment (k3d / kind)
 
-Manifests and script to run the whole system (Postgres, Redis, RabbitMQ, Keycloak, and the
-monorepo's 5 Spring Boot services) inside a single-node `kind` cluster, within this repo's
-Codespace. See `ARCHITECTURE.md` section 7 (Day 1: Kubernetes manifests for local `kind`
-deployment) and section 9 (Setup Instructions) for the context and this exercise's cut
-priorities.
+Manifests and scripts to run the whole system (Postgres, Redis, RabbitMQ, Keycloak, and the
+monorepo's 5 Spring Boot services) inside a single-node local cluster, within this repo's
+Codespace. See `ARCHITECTURE.md` section 7 (Day 1: Kubernetes manifests for local deployment)
+and section 9 (Setup Instructions) for the context and this exercise's cut priorities.
 
-> **Verified status.** The manifests and the script are complete and reviewed, but **could
-> never be run end-to-end**: `kind` cannot bootstrap a cluster inside a GitHub Codespace, for
-> reasons unrelated to this repo (its own configuration was ruled out by creating a cluster with
-> no config at all, which fails the same way). Full detail is below in Troubleshooting and in
-> `ARCHITECTURE.md` section 13. To see the system running, use `docker-compose` instead — which
-> is the cut plan already declared in `ARCHITECTURE.md` section 12's risk table before this was
-> ever attempted.
+> **Verified status.** The system runs end-to-end on Kubernetes, via **k3d**
+> (`./infra/k8s/deploy-to-k3d.sh`). All 9 pods reach `Ready`, a JWT issued by the in-cluster
+> Keycloak is accepted by `v2-shortener-service`, and both the V1 and V2 redirect paths were
+> exercised with real HTTP calls — the transcript is in the "Smoke test" section below, and the
+> four defects that run uncovered are recorded in `AI_USAGE_LOG.md`.
+>
+> **`kind` remains unverified in a Codespace and is expected to stay that way**: it cannot
+> bootstrap a control plane there at all (7 attempts, elimination table under Troubleshooting).
+> `deploy-to-kind.sh` and `kind-config.yaml` are kept because `kind` works normally on an
+> ordinary Docker host, but nothing in this repo has ever seen them succeed. k3d runs k3s, which
+> never invokes `kubeadm`, which is why that whole failure class does not apply to it.
+>
+> One defect is known and still open: the Gateway consults a TTL'd cache to decide whether a
+> short code lives in V2, so a freshly created V2 link is routed to V1 and 404s until something
+> reads it directly. See "Known defect" below — closing it is a design change, tracked
+> separately.
 
 ## Requirements
 
-`kubectl`, `kind` and `docker` available on the PATH — already installed by
-`.devcontainer/setup.sh` when the Codespace is created (see that script's own comment on why
-they are installed as direct binaries instead of a third-party devcontainer feature).
+`kubectl`, `kind` and `docker` are installed by `.devcontainer/setup.sh` when the Codespace is
+created (see that script's own comment on why they are installed as direct binaries instead of a
+third-party devcontainer feature).
+
+**`k3d` is not**, and it is the one that actually works here. Install it once per Codespace:
+
+```bash
+curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+```
+
+`deploy-to-k3d.sh` checks for it up front and prints that same command if it is missing.
 
 ## Deploy
 
 From any directory in the repo:
 
 ```bash
-./infra/k8s/deploy-to-kind.sh
+docker-compose down          # not optional -- see the port note below
+./infra/k8s/deploy-to-k3d.sh
 ```
 
-This: creates the `kind` cluster (if one with that name does not already exist and is usable —
+**Bringing the compose stack down first is not optional.** This cluster claims the same host
+ports (8081/8082/8084) that `docker-compose.yml` does, deliberately, so that "point Postman at
+localhost" needs no new environment either way. With compose still up, cluster creation fails
+with `Bind for 0.0.0.0:8081 failed: port is already allocated`. The cluster brings up its own
+Postgres, Redis, RabbitMQ and Keycloak; it does not reuse compose's.
+
+This: creates the `k3d` cluster (if one with that name does not already exist and is usable —
 see the script's own comment on why "exists" and "usable" are checked separately), builds all 5
-application images with the repo root's shared `Dockerfile`, loads them directly into the `kind`
+application images with the repo root's shared `Dockerfile`, imports them directly into the k3d
 node (no intermediate registry involved), generates the 3 `Secret`s and the Keycloak realm-import
 `ConfigMap` (see "Credentials" below — neither one lives as a committed YAML file with a value
 inside it), applies every manifest in this directory in order, and waits for each `Deployment` to
@@ -39,10 +62,11 @@ become `available` before finishing. It is idempotent — safe to re-run after a
 Alternative, step-by-step script, if you'd rather not run the whole script at once:
 
 ```bash
-kind create cluster --name url-shortener --config infra/k8s/kind-config.yaml
+k3d cluster create --config infra/k8s/k3d-config.yaml
 docker build --build-arg MODULE=v2-shortener-service -t v2-shortener-service:kind .
-kind load docker-image v2-shortener-service:kind --name url-shortener
-# ... repeat build+load for v1-legacy-monolith, api-gateway, analytics-worker, bulk-processor
+k3d image import v2-shortener-service:kind --cluster url-shortener
+# ... repeat build+import for v1-legacy-monolith, api-gateway, analytics-worker, bulk-processor
+# (the ":kind" tag is just the local build tag both cluster paths share -- see deploy-to-k3d.sh)
 
 # Secrets: same variable names as docker-compose.yml/.env.example, same default if there is no
 # override — see the "Credentials" section below.
@@ -69,18 +93,20 @@ kubectl apply -f infra/k8s/
 
 No YAML file in this directory has a password inside it — the 3 `Secret`s
 (`postgres-credentials`, `rabbitmq-credentials`, `keycloak-admin-credentials`) are generated by
-`deploy-to-kind.sh` at deploy time, reading the same environment variables
+`deploy-to-k3d.sh`/`deploy-to-kind.sh` at deploy time, reading the same environment variables
 `docker-compose.yml`/`.env.example` already use (`POSTGRES_PASSWORD`, `RABBITMQ_USER`,
 `RABBITMQ_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`), with the same development default if there is no
 override. The script loads `.env` at the repo root automatically if it exists (never committed,
 see `.gitignore`) — copying `.env.example` to `.env` and changing a value there is enough for it
-to propagate identically to `docker-compose` and to `kind`, with no manifest to touch.
+to propagate identically to `docker-compose`, k3d and kind, with no manifest to touch.
 
 ## Reaching the services from outside the cluster
 
-`infra/k8s/kind-config.yaml` maps 3 Codespace ports directly to the fixed `NodePort`s of their
-Services — the same 3 ports `docker-compose.yml` and the Postman collection already use, so
-pointing at "localhost" works identically with or without `kind`:
+`infra/k8s/k3d-config.yaml` (and `kind-config.yaml`, identically) maps 3 Codespace ports directly
+to the fixed `NodePort`s of their Services — the same 3 ports `docker-compose.yml` and the
+Postman collection already use, so pointing at "localhost" works identically with compose, k3d or
+kind. Neither tool can add a mapping after the cluster exists, which is why both files are
+committed rather than living in whatever flags someone last typed:
 
 | Codespace port | Service | Use |
 | --- | --- | --- |
@@ -98,40 +124,82 @@ kubectl -n url-shortener port-forward svc/rabbitmq 15672:15672
 kubectl -n url-shortener port-forward svc/v1-legacy-monolith 8080:8080
 ```
 
-**Pre-existing limitation, not introduced by this PR:** the API Gateway still does not route
-`/api/v2/**` to the real microservices — `GatewayRoutesConfig`/`V2StubController` (Day 1) return
-`501 Not Implemented` for that prefix, and were never updated once `v2-shortener-service` actually
-existed. That is why V2 traffic is exposed directly against `v2-shortener-service:30084` instead
-of going through the Gateway — exactly as it is already tested today via Postman/curl outside
-Kubernetes. Closing that Gateway gap is a separate code change (see `ARCHITECTURE.md` section 6,
-Scenario B — this repo's new-history plan folds that fix into the Day 2 "V2 cutover" scenario),
-out of scope for a Kubernetes-manifests-only PR.
+The Gateway routes `/api/v1/**`, `/api/v2/**` and the public `GET /{shortCode}` redirect;
+`v2-shortener-service` keeps its own NodePort anyway, so the Postman collection and this repo's
+curl examples can address it directly and the Gateway can be exercised as a cutover switch
+rather than being the only way in.
+
+## Known defect
+
+`DynamicShortCodeRoutingFilter` decides whether a short code lives in V2 by checking whether
+`shortlink:v2:<code>` exists in Redis. That key is not an index — it is `ShortLinkCache`'s
+read-through **cache**, written only by `ShortLinkService.resolve()` on a cache miss, with a
+300-second TTL (`app.shortlink.cache-ttl-seconds`). Creating a link writes to PostgreSQL and
+nothing else. Two consequences:
+
+- A newly created V2 link is routed to V1 by the Gateway and answers `404`, until something
+  reads it directly against `v2-shortener-service`.
+- A working V2 link starts 404ing again after 300 seconds without traffic, when its cache entry
+  expires, and recovers the moment anything warms it. Intermittent and time-dependent.
+
+Demonstrated on the running cluster: the same `GET http://localhost:8082/demoV2` answered `404`
+before the link had been read and `302` after — see the Smoke test transcript below.
+
+The fix is a design change, not a patch: routing needs a durable record of which system owns a
+code (or no shared state at all, with the Gateway trying V2 and falling back to V1 on a 404),
+which is a different thing from a cache of what a link resolves to. Tracked separately; see
+`AI_USAGE_LOG.md` for the full reasoning and why the filter's own tests did not catch it.
 
 ## Smoke test
 
+Uses `sed` rather than `python3`: this Codespace image has no `python3`, which the previous
+version of this section assumed it did.
+
 ```bash
-# Keycloak token (the imported realm's demo/demo_local user)
-TOKEN=$(curl -s -X POST http://localhost:8081/realms/urlshortener/protocol/openid-connect/token \
+# Token from the in-cluster Keycloak (the imported realm's demo/demo_local user)
+RESP=$(curl -s -X POST http://localhost:8081/realms/urlshortener/protocol/openid-connect/token \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d 'grant_type=password&client_id=url-shortener-v2&username=demo&password=demo_local' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+  -d 'grant_type=password&client_id=url-shortener-v2&username=demo&password=demo_local')
+TOKEN=$(echo "$RESP" | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 
-# Create a short link (V2)
-curl -s -X POST http://localhost:8084/api/v2/urls \
+# V1: create and redirect, both through the Gateway
+V1=$(curl -s -X POST http://localhost:8082/api/v1/urls \
+  -H 'Content-Type: application/json' -d '{"longUrl":"https://example.com/soy-v1"}')
+V1CODE=$(echo "$V1" | sed -n 's/.*"shortCode"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" "http://localhost:8082/${V1CODE}"
+
+# V2: create with a real JWT, then follow the redirect against the service itself
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8084/api/v2/urls \
   -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
-  -d '{"longUrl":"https://example.com"}'
+  -d '{"longUrl":"https://example.com/soy-v2","customAlias":"demoV2"}'
+curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" http://localhost:8084/demoV2
 
-# V1, via the Gateway
-curl -s http://localhost:8082/api/v1/urls -H 'Content-Type: application/json' \
-  -d '{"longUrl":"https://example.com"}' -X POST
+# Which system the Gateway picks for that same code (see "Known defect")
+curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" http://localhost:8082/demoV2
+kubectl -n url-shortener exec deploy/redis -- redis-cli keys 'shortlink:v2:*'
 ```
+
+Observed on the cluster this documentation was written against:
+
+| Check | Result |
+| --- | --- |
+| Keycloak's advertised issuer | `http://keycloak:8080/realms/urlshortener` |
+| `iss` on a token requested from outside the cluster | the same value |
+| `POST /api/v1/urls` through the Gateway | `201`, short code `UK2iBV` |
+| `GET /{code}` through the Gateway, V1 link | `301 -> https://example.com/soy-v1` |
+| `POST /api/v2/urls` with that JWT | `201` |
+| `GET /demoV2` directly against `v2-shortener-service` | `302 -> https://example.com/soy-v2` |
+| `GET /demoV2` through the Gateway, before that read | `404` |
+| `GET /demoV2` through the Gateway, after that read | `302 -> https://example.com/soy-v2` |
+
+The last two rows are the same request, and are the Known defect above, not a flaky test.
 
 ## Design and decisions (more detail in `AI_USAGE_LOG.md`)
 
 - **A single parameterized `Dockerfile`** (`ARG MODULE`) at the repo root, instead of one per
   module — see its own header comment.
 - **No `Secret` lives as committed YAML with a value inside it** — all three are generated in
-  `deploy-to-kind.sh` from environment variables (see "Credentials" above). A PR review on an
+  both deploy scripts from environment variables (see "Credentials" above). A PR review on an
   earlier version of this directory flagged exactly this on `KEYCLOAK_ADMIN_PASSWORD`; why that
   change matters even when the value itself was never real is detailed in `AI_USAGE_LOG.md`.
 - **No persistent storage** (Postgres uses `emptyDir`, not a `PersistentVolumeClaim`): already
@@ -143,12 +211,54 @@ curl -s http://localhost:8082/api/v1/urls -H 'Content-Type: application/json' \
   the Codespace.
 - **Its own namespace (`url-shortener`)**: `kubectl delete namespace url-shortener` cleans up
   everything at once.
-- **No Helm or Kustomize**: 10 `kubectl apply`-able manifests (plus `kind-config.yaml`, which is
-  not applied with `kubectl`), no templating — proportional to this exercise's scope; a real
+- **No Helm or Kustomize**: 10 `kubectl apply`-able manifests (plus `k3d-config.yaml` and
+  `kind-config.yaml`, which are cluster configs, not applied with `kubectl`), no templating — proportional to this exercise's scope; a real
   deployment (see the GKE roadmap in `ARCHITECTURE.md` section 9) would justify Helm/Kustomize to
   actually manage multiple environments.
 
 ## Troubleshooting
+
+### `k3d cluster create` fails with "port is already allocated"
+
+```text
+docker failed to start container for node 'k3d-url-shortener-serverlb':
+Bind for 0.0.0.0:8081 failed: port is already allocated
+```
+
+`docker-compose` is still up, or the five services are still running from `mvn spring-boot:run`.
+Both claim the same host ports this cluster maps, by design (see Deploy). Stop them and re-run —
+k3d rolls the half-created cluster back on its own, so there is nothing to clean up first.
+
+### The cluster is gone after the Codespace was closed and reopened
+
+It is not gone; its nodes are Docker containers that do not restart themselves:
+
+```bash
+k3d cluster start url-shortener
+```
+
+Note that `kubectl get pods` reports `AGE` from the object's creation timestamp, which does not
+pause while the Codespace is suspended. A pod that has actually been running for 90 seconds can
+show `AGE 40m` right after a restart — do not read that as "stuck for 40 minutes".
+
+### A pod stays `0/1` while its own log says the service started
+
+That is a probe problem, not a service problem, and this directory has now hit two of them.
+Check what the container itself says before touching anything else:
+
+```bash
+kubectl -n url-shortener logs -l app=<name> --tail=50
+kubectl -n url-shortener describe pod -l app=<name> | grep -B2 -A10 "Last State"
+```
+
+Use `-l app=<name>`, not a pod name: a rollout or a cluster restart renames pods, and a stale
+name is the most common reason these two commands answer `NotFound`.
+
+In `Last State`, the exit code says which kind of failure it was: `137` is an OOM kill, `143` is
+`SIGTERM` — Kubernetes deliberately terminating the container, which after a `startupProbe` has
+been added means the probe never passed rather than that the app is slow. `AI_USAGE_LOG.md`
+records both instances found here (an exec probe that could not finish inside the default
+1-second timeout, and probe paths that a security filter answered `401` to).
 
 ### `kind create cluster` fails at "Starting control-plane" (a known state in Codespaces)
 
@@ -201,5 +311,9 @@ timebox.
 ## Teardown
 
 ```bash
-kind delete cluster --name url-shortener
+k3d cluster delete url-shortener       # kind: kind delete cluster --name url-shortener
 ```
+
+To keep the cluster but free the host ports (to go back to `docker-compose`, say),
+`k3d cluster stop url-shortener` is enough — `k3d cluster start url-shortener` brings it back
+with its images and manifests intact.

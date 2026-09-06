@@ -289,13 +289,22 @@ Concrete controls (not just stated — verified via the GitHub API at the time o
    mvn clean spring-boot:run
    ```
 
-4. To demonstrate the local Kubernetes deployment (a single-node `kind` cluster, with all 5
-   services and their infrastructure running inside the cluster itself, not reusing step 2's
-   `docker-compose`):
+4. To demonstrate the local Kubernetes deployment (a single-node cluster, with all 5 services
+   and their infrastructure running inside the cluster itself, not reusing step 2's
+   `docker-compose` — the two cannot run at once, they claim the same host ports on purpose):
 
    ```bash
-   ./infra/k8s/deploy-to-kind.sh
+   docker-compose down
+   which k3d || curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+   ./infra/k8s/deploy-to-k3d.sh
    ```
+
+   **k3d, not kind.** `kind` cannot bootstrap a control plane inside a Codespace at all (7
+   attempts, elimination table in `infra/k8s/README.md`); k3d runs k3s, which never invokes
+   `kubeadm`, and does. This is the path that was actually verified end-to-end: all 9 pods
+   `Ready`, a JWT from the in-cluster Keycloak accepted by `v2-shortener-service`, and the V1
+   and V2 redirect paths exercised over real HTTP. `deploy-to-kind.sh` is kept for an ordinary
+   Docker host, where `kind` works, but has never been seen to succeed from this repo.
 
    Full detail (how to reach each service from outside the cluster, design decisions,
    troubleshooting, teardown) is in [`infra/k8s/README.md`](./infra/k8s/README.md).
@@ -341,7 +350,8 @@ Concrete controls (not just stated — verified via the GitHub API at the time o
 
 - Eventual consistency in analytics (a few seconds) from the RabbitMQ decoupling — acceptable for this domain, not for strictly transactional systems.
 - No persistent storage (volumes) in the kind/k3d cluster — valid for a demo, not for production.
-- **`kind` cannot bootstrap a cluster inside GitHub Codespaces** — verified empirically, not assumed. Across seven attempts, the control plane never completed bootstrap: it always failed in the steps `kind` runs immediately after `kubeadm init` (removing the control-plane taint / the load-balancer exclusion label, or exporting the kubeconfig), with the apiserver refusing connections on `:6443` or `/etc/kubernetes/admin.conf` missing. Hypotheses were eliminated one by one: `inotify` limits (already high), CPU/memory (upgraded from 2 to 4 cores and 8 to 16 GB, with 13 GB free, and it still failed), disk space (23 GB free), `kind` version (v0.24.0 and the latest), Kubernetes version (v1.31.0, v1.34.0, v1.37.0), and finally **this repo's own configuration** — a cluster created with *no config file at all* fails identically, which is what exonerates `kind-config.yaml` and the manifests. The full attempt table is in `infra/k8s/README.md` (Troubleshooting). Accepted consequence: the `infra/k8s/` manifests stand as the deliverable, and the stack is demonstrated running with `docker-compose` — which is exactly the *cut plan* already declared in section 12's risk table **before** Day 3 started, not a rationalization invented after the failure.
+- **`kind` cannot bootstrap a cluster inside GitHub Codespaces** — verified empirically, not assumed. Across seven attempts, the control plane never completed bootstrap: it always failed in the steps `kind` runs immediately after `kubeadm init` (removing the control-plane taint / the load-balancer exclusion label, or exporting the kubeconfig), with the apiserver refusing connections on `:6443` or `/etc/kubernetes/admin.conf` missing. Hypotheses were eliminated one by one: `inotify` limits (already high), CPU/memory (upgraded from 2 to 4 cores and 8 to 16 GB, with 13 GB free, and it still failed), disk space (23 GB free), `kind` version (v0.24.0 and the latest), Kubernetes version (v1.31.0, v1.34.0, v1.37.0), and finally **this repo's own configuration** — a cluster created with *no config file at all* fails identically, which is what exonerates `kind-config.yaml` and the manifests. The full attempt table is in `infra/k8s/README.md` (Troubleshooting). **Resolved by changing tools, not by giving up on Kubernetes:** the same manifests run unmodified on **k3d** (k3s in Docker), which never invokes `kubeadm` and so is not subject to this failure class at all — `./infra/k8s/deploy-to-k3d.sh`, verified end-to-end (9 pods `Ready`, real JWT accepted, both redirect paths exercised). `kind` remains supported for an ordinary Docker host and remains unverified from here. The `docker-compose` fallback declared in section 12's risk table was never needed for this purpose.
+- **The Gateway decides V1-vs-V2 from a cache, not from an index — open defect.** `DynamicShortCodeRoutingFilter` treats the presence of `shortlink:v2:<code>` in Redis as proof that a code lives in V2, but that key is `ShortLinkCache`'s read-through cache: written only when a link is *read*, with a 300-second TTL, and never written at creation. So a freshly created V2 link is routed to V1 and 404s until something reads it directly, and a working V2 link starts 404ing again once its entry expires. Demonstrated on the running cluster — the identical request answered `404` then `302` either side of a direct read. Closing it is a design change (a durable ownership record, or no shared state at all with the Gateway trying V2 and falling back to V1 on 404), tracked separately rather than patched in place; see `infra/k8s/README.md` ("Known defect") and `AI_USAGE_LOG.md`.
 - No verification against external phishing/malware lists (stays a documented future improvement).
 - No real GCP deployment within this exercise's timebox (see the GKE Roadmap).
 
