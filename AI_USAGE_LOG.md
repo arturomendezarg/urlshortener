@@ -662,3 +662,114 @@ Continuous log of decisions made during AI-assisted execution (see template and 
   that failure should be diagnosed from CI's real output, per this project's own standing rule,
   not patched from guesswork.
 - **Decision:** pending engineer review (see PR).
+
+## 2026-09-06 — [Fix/Infra] Kubernetes deployment made real on k3d, and the four defects that only appeared once it ran
+
+- **Task:** get the system actually running on Kubernetes. Until now `infra/k8s/` was a reviewed
+  but never-executed deliverable: `kind` cannot bootstrap a control plane inside a Codespace
+  (seven attempts, elimination table in `infra/k8s/README.md`), and the declared fallback was to
+  demonstrate the stack with `docker-compose` instead.
+- **Prompt:** "esto debe funcionar en kubernetes", after `docker-compose up -d` and a full
+  `mvn clean install` had both succeeded on all seven modules.
+- **AI-generated:**
+  - `infra/k8s/k3d-config.yaml` and `infra/k8s/deploy-to-k3d.sh`. k3d runs k3s, which never
+    invokes `kubeadm`, so the entire failure class that blocks `kind` here does not apply — a
+    path this repo's own README had already identified as the known alternative but never tried.
+    Everything below cluster creation and image loading is the same logic as
+    `deploy-to-kind.sh`; the manifests are plain `Deployment`/`Service`/`NodePort` and moved
+    across unmodified. `deploy-to-kind.sh` and `kind-config.yaml` were left untouched rather
+    than generalised: `kind` still works on an ordinary Docker host, and a script that cannot be
+    verified from here should not be edited to serve one that can.
+  - **Defect 1 — the Gateway had no V2 wiring in Kubernetes.** `21-api-gateway.yaml` passed only
+    `V1_LEGACY_MONOLITH_URL`. The dynamic V1/V2 dispatch added in the previous PR needs
+    `V2_SHORTENER_SERVICE_URL` and Redis, and had neither. It would not have failed loudly:
+    with no Redis reachable, `DynamicShortCodeRoutingFilter`'s documented outage fallback serves
+    every short code from V1, so V2 links would silently never resolve through the Gateway.
+  - **Defect 2 — probes that could not pass.** RabbitMQ's probes run `rabbitmq-diagnostics -q
+    ping`, which boots a whole Erlang CLI node per invocation. No probe in `infra/k8s/` declared
+    `timeoutSeconds`, so all of them used Kubernetes' default of **1 second**, and that probe
+    could never finish inside it. Observed directly: the container logged `Server startup
+    complete; 5 plugins started` and `Time to start RabbitMQ: 19407 ms` while its pod sat at
+    `0/1` until the liveness probe — same command, same 1s timeout — killed it. Postgres and
+    Redis were unaffected only because `pg_isready` and `redis-cli ping` are cheap C binaries.
+    Fixed with an explicit `timeoutSeconds` on all 21 probes, plus a `startupProbe` on the seven
+    slow-starting containers: `initialDelaySeconds` cannot distinguish a slow start from a hang,
+    since one fixed number is either too short to boot or too long to detect a real hang.
+  - **Defect 3 — the security filter answered `401` to the kubelet.** `SecurityConfig` permitted
+    `"/actuator/health"` as an exact path, which does not match `/actuator/health/readiness` or
+    `/actuator/health/liveness` — the sub-paths Spring Boot creates once it detects Kubernetes,
+    and the two a kubelet probes with no `Authorization` header. They fell through to
+    `.anyRequest().authenticated()`. `v2-shortener-service` is the monorepo's only OAuth2
+    Resource Server, which is why it alone was affected. Diagnosed from its own log: `Started
+    V2ShortenerServiceApplication in 44.357 seconds`, its `DispatcherServlet` initialising to
+    answer the probe request itself, then exit `143` (`SIGTERM`) at almost exactly the 300s
+    `startupProbe` budget — Kubernetes terminating a fully healthy application. Deliberately
+    **not** fixed by pointing the probes at `/actuator/health`, the tempting one-line
+    alternative: that endpoint aggregates every health indicator, so a Redis blip would mark the
+    pod NotReady and, through the liveness probe, restart a working application — precisely what
+    this service's Circuit Breaker and PostgreSQL fallback exist to prevent (section 6,
+    Scenario A). The probe paths were right; the security rule was wrong.
+  - **Defect 4 — Keycloak stamped two different issuers.** `KC_HOSTNAME` carried the bare
+    hostname `keycloak`. Keycloak 26's hostname v2 provider treats that as the host only and
+    still derives scheme and port from the incoming request — which defeats the very reason the
+    variable was set, because the two callers arrive on different ports (external `curl`/Postman
+    on the mapped host port 8081, `v2-shortener-service` on the cluster Service port 8080).
+    Measured, not reasoned about: a token requested through `localhost:8081` came back with
+    `"iss":"http://keycloak:8081/realms/urlshortener"`, and `POST /api/v2/urls` answered `401`
+    with `error_description="The iss claim is not valid"`. Nothing outside the cluster could
+    authenticate against V2 at all. Fixed by giving `KC_HOSTNAME` a full URL
+    (`http://keycloak:8080`), which pins scheme, host and port together.
+  - Regression coverage for defect 3: `KeycloakResourceServerIntegrationTest` already asserted
+    that `/actuator/health` was public and had been green throughout — it agreed with the bug.
+    It now also asserts both probe paths, with the health probes explicitly enabled for the test
+    JVM (in the cluster Spring Boot enables them by platform detection, which a plain test JVM
+    does not trigger).
+  - Documentation brought in line with reality: `infra/k8s/README.md`'s "Verified status"
+    callout (which stated the deployment could never be run end-to-end), its stale
+    "Pre-existing limitation" paragraph about the Gateway returning `501` for `/api/v2/**`
+    (closed by the previous PR), and its smoke test, which invoked `python3` — not present in
+    this Codespace's image, so the documented smoke test could not run as written. Same for
+    `ARCHITECTURE.md` sections 9 and 13, and `api-gateway/pom.xml`'s module description, which
+    still advertised the removed 501 stub.
+- **Researched first:** read every manifest's probe, resource and env block before changing any
+  of them; read `ShortLinkService`, `ShortLinkCache` and `SecurityConfig` rather than inferring
+  behaviour from names; read `infra/keycloak/realm-export.json` to confirm the client and test
+  user rather than trusting the README, which had already proved stale in three places. Each
+  hypothesis was checked against the cluster before any fix was written — `kubectl logs`,
+  `describe`'s `Last State`, the decoded JWT payload, `redis-cli keys`.
+- **Verification:** all 9 pods `Ready` on k3d. Smoke test over real HTTP, transcript in
+  `infra/k8s/README.md`: Keycloak advertises `http://keycloak:8080/realms/urlshortener` and
+  stamps that same `iss` on a token requested from outside the cluster; `POST /api/v1/urls`
+  through the Gateway returns `201` and `GET /{code}` returns `301` to the target;
+  `POST /api/v2/urls` with that JWT returns `201`; `GET /demoV2` against `v2-shortener-service`
+  returns `302`. Not verified here: `mvn verify` was not run against these changes (the new
+  regression test compiles during the image build, which uses `-DskipTests`; CI runs it), and
+  `deploy-to-kind.sh` remains unexecutable in this environment as it always has been.
+- **Not modified:** `deploy-to-kind.sh`, `kind-config.yaml`, the seven-attempt `kind`
+  elimination table (kept as the historical record it is), and every service's business logic.
+- **Declared risks:** one defect is knowingly left open — see the Decision below. The
+  `startupProbe` budgets (300s) and the raised `kubectl wait` timeouts (180s → 300s) are sized
+  for a loaded single-node Codespace and are generous for a real cluster. RabbitMQ restarted
+  twice with exit code `1` during the rollout churn and has been stable since; not chased,
+  and recorded here rather than left unmentioned.
+- **Decision:** the Gateway's V1/V2 dispatch is **wrong in a way this PR does not fix**, and the
+  defect is in code this assistant wrote in the previous PR. `DynamicShortCodeRoutingFilter`
+  treats `shortlink:v2:<code>` in Redis as an index of which system owns a code, but that key is
+  `ShortLinkCache`'s read-through cache: written only by `resolve()` on a miss, with a 300s TTL,
+  and never written at creation. So a newly created V2 link is routed to V1 and 404s until
+  something reads it directly, and a working link starts 404ing again once its entry expires.
+  Demonstrated on the cluster: the identical `GET http://localhost:8082/demoV2` answered `404`
+  before a direct read and `302` after, with `redis-cli keys` empty then populated either side.
+  The filter's own test did not catch this because it **writes the key by hand** in its setup —
+  it validates the filter's logic correctly while assuming into existence the index nothing in
+  production ever writes; the test name, `routesShortCodeToV2WhenPresentInTheV2Index`, states
+  the assumption out loud. Closing it is a design change, not a patch — a durable ownership
+  record written at creation, or no shared state at all with the Gateway trying V2 and falling
+  back to V1 on a 404 — and it is deliberately deferred to its own PR so the decision gets its
+  own reasoning rather than riding along here. Pending engineer review (see PR).
+- **Pattern worth naming:** all four defects were integration defects, all four lived in code and
+  manifests that were carefully written, heavily commented and reviewed, and **not one was
+  reachable by unit tests, static analysis, markdown lint, CI, or reading the diff**. Every one
+  required the whole system standing up at once. That is the strongest argument in this
+  repository for having pushed to make Kubernetes actually run instead of accepting the
+  documented limitation and demonstrating with `docker-compose`.
