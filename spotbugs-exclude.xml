@@ -48,7 +48,7 @@
       this same group for the identical reason: it holds a constructor injected
       ReactiveStringRedisTemplate, the reactive-stack counterpart of ShortLinkCache's own
       StringRedisTemplate field above. Its two URI fields (v1BaseUri, v2BaseUri) are not what
-      trigger the finding -- java.net.URI is itself immutable, so they are not flagged on their
+      trigger the finding — java.net.URI is itself immutable, so they are not flagged on their
       own; the class is included here only because of the Redis client field, same as every
       other entry in this group.
 
