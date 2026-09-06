@@ -309,7 +309,7 @@ Concrete controls (not just stated — verified via the GitHub API at the time o
    Full detail (how to reach each service from outside the cluster, design decisions,
    troubleshooting, teardown) is in [`infra/k8s/README.md`](./infra/k8s/README.md).
 
-**Postman testing:** collection at `docs/url-shortener-enterprise.postman_collection.json`, with preconfigured environments for V1, V2, expiration, and async bulk.
+**Postman testing (planned, not yet created):** `docs/url-shortener-enterprise.postman_collection.json` is referenced throughout this project's history as the intended way to exercise V1, V2, expiration and async bulk with preconfigured environments, but the file itself was never committed — stated here plainly rather than left implied by the surrounding references. Until it exists, `README.md` ('For reviewers') gives the equivalent `curl` steps, and `infra/k8s/README.md` ('Smoke test') has the transcript actually run against the Kubernetes deployment. Tracked as follow-up work, alongside the Gateway routing fix in `infra/k8s/README.md`'s Known defect.
 
 **GKE Roadmap (documented, not executed in this exercise):** Artifact Registry for images, GKE Autopilot, Cloud SQL for Postgres, Memorystore for Redis, Workload Identity Federation instead of service-account keys. This path is documented to demonstrate productization judgment without spending the prototype's timebox on GCP credentials and billing.
 
