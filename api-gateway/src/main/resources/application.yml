@@ -9,10 +9,21 @@ spring:
       httpclient:
         connect-timeout: 2000
         response-timeout: 5s
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Same short, bounded timeout as v2-shortener-service's own Redis client (application.yml
+      # there): DynamicShortCodeRoutingFilter must fail fast to its safe default (route to V1) on
+      # a Redis outage, never hang the redirect waiting on the default client timeout.
+      timeout: 300ms
+      connect-timeout: 300ms
 
 app:
   v1-legacy-monolith:
     base-url: ${V1_LEGACY_MONOLITH_URL:http://localhost:8080}
+  v2-shortener-service:
+    base-url: ${V2_SHORTENER_SERVICE_URL:http://localhost:8084}
 
 management:
   endpoints:
