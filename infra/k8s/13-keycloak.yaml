@@ -53,8 +53,24 @@ spec:
             # provider stamp that SAME canonical URL as `iss` on every token regardless of which
             # of those two URLs a client actually used to request it, so the resource server's
             # issuer check keeps matching no matter who asked for the token.
+            #
+            # The value has to be a FULL URL, not the bare hostname this used to carry. Keycloak
+            # 26's hostname v2 provider treats a bare hostname as the host ONLY, and still takes
+            # the scheme and port from the incoming request -- which defeats the entire purpose
+            # above, because the two callers arrive on different ports. Measured, not guessed: a
+            # token requested through localhost:8081 came back stamped
+            # "iss":"http://keycloak:8081/realms/urlshortener", and v2-shortener-service (which
+            # validates against http://keycloak:8080/...) rejected it with 401 "The iss claim is
+            # not valid". A full URL pins scheme, host and port together, so every token carries
+            # the same issuer no matter which of the two URLs asked for it.
+            #
+            # Consequence worth knowing: the OIDC discovery document then advertises
+            # http://keycloak:8080/... to external callers too, which they cannot resolve. That
+            # is fine for how this system is actually exercised -- curl and the Postman
+            # collection address the token endpoint directly rather than following discovery --
+            # but a client that auto-discovers would need a port-forward to keycloak:8080.
             - name: KC_HOSTNAME
-              value: keycloak
+              value: http://keycloak:8080
           volumeMounts:
             - name: realm-import
               mountPath: /opt/keycloak/data/import
