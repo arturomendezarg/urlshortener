@@ -1,42 +1,51 @@
-# Despliegue en Kubernetes local (kind)
+# Local Kubernetes deployment (kind)
 
-Manifiestos y script para correr el sistema completo (Postgres, Redis, RabbitMQ, Keycloak, y los
-5 servicios Spring Boot del monorepo) dentro de un clúster `kind` de un solo nodo, dentro del
-Codespace de este repo. Ver `ARCHITECTURE.md` sección 7 (Día 3: "manifiestos de K8s desplegados en kind dentro de Codespaces") y sección 9
-(Setup Instructions) para el contexto y las prioridades de recorte de este ejercicio.
+Manifests and script to run the whole system (Postgres, Redis, RabbitMQ, Keycloak, and the
+monorepo's 5 Spring Boot services) inside a single-node `kind` cluster, within this repo's
+Codespace. See `ARCHITECTURE.md` section 7 (Day 1: Kubernetes manifests for local `kind`
+deployment) and section 9 (Setup Instructions) for the context and this exercise's cut
+priorities.
 
-## Requisitos
+> **Verified status.** The manifests and the script are complete and reviewed, but **could
+> never be run end-to-end**: `kind` cannot bootstrap a cluster inside a GitHub Codespace, for
+> reasons unrelated to this repo (its own configuration was ruled out by creating a cluster with
+> no config at all, which fails the same way). Full detail is below in Troubleshooting and in
+> `ARCHITECTURE.md` section 13. To see the system running, use `docker-compose` instead — which
+> is the cut plan already declared in `ARCHITECTURE.md` section 12's risk table before this was
+> ever attempted.
 
-`kubectl`, `kind` y `docker` disponibles en el PATH -- ya instalados por
-`.devcontainer/setup.sh` al crear el Codespace (ver el comentario de ese script sobre por qué se
-instalan como binarios directos en vez de una devcontainer feature de terceros).
+## Requirements
+
+`kubectl`, `kind` and `docker` available on the PATH — already installed by
+`.devcontainer/setup.sh` when the Codespace is created (see that script's own comment on why
+they are installed as direct binaries instead of a third-party devcontainer feature).
 
 ## Deploy
 
-Desde cualquier directorio del repo:
+From any directory in the repo:
 
 ```bash
 ./infra/k8s/deploy-to-kind.sh
 ```
 
-Esto: crea el clúster `kind` (si no existe uno con ese nombre), construye las 5 imágenes de la
-aplicación con el `Dockerfile` compartido de la raíz del repo, las carga directamente al nodo de
-`kind` (sin registry intermedio), genera los 3 `Secret`s y el `ConfigMap` del realm de Keycloak
-(ver "Credenciales" abajo -- ninguno de los dos vive como YAML committeado con un valor adentro),
-aplica todos los manifiestos de este directorio en orden, y espera a que cada `Deployment` quede
-`available` antes de terminar. Es idempotente -- se puede volver a correr después de un cambio de
-código.
+This: creates the `kind` cluster (if one with that name does not already exist and is usable —
+see the script's own comment on why "exists" and "usable" are checked separately), builds all 5
+application images with the repo root's shared `Dockerfile`, loads them directly into the `kind`
+node (no intermediate registry involved), generates the 3 `Secret`s and the Keycloak realm-import
+`ConfigMap` (see "Credentials" below — neither one lives as a committed YAML file with a value
+inside it), applies every manifest in this directory in order, and waits for each `Deployment` to
+become `available` before finishing. It is idempotent — safe to re-run after a code change.
 
-Script alternativo, paso a paso, si se prefiere no correr el script completo:
+Alternative, step-by-step script, if you'd rather not run the whole script at once:
 
 ```bash
 kind create cluster --name url-shortener --config infra/k8s/kind-config.yaml
 docker build --build-arg MODULE=v2-shortener-service -t v2-shortener-service:kind .
 kind load docker-image v2-shortener-service:kind --name url-shortener
-# ... repetir build+load para v1-legacy-monolith, api-gateway, analytics-worker, bulk-processor
+# ... repeat build+load for v1-legacy-monolith, api-gateway, analytics-worker, bulk-processor
 
-# Secrets: mismos nombres de variable que docker-compose.yml/.env.example, mismo default si no
-# hay override -- ver la sección "Credenciales" abajo.
+# Secrets: same variable names as docker-compose.yml/.env.example, same default if there is no
+# override — see the "Credentials" section below.
 kubectl create secret generic postgres-credentials --namespace url-shortener \
   --from-literal=POSTGRES_DB=urlshortener --from-literal=POSTGRES_USER=urlshortener \
   --from-literal=POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-urlshortener_local}" \
@@ -56,99 +65,138 @@ kubectl create configmap keycloak-realm-import \
 kubectl apply -f infra/k8s/
 ```
 
-## Credenciales
+## Credentials
 
-No hay ningún archivo YAML en este directorio con una contraseña adentro -- los 3 `Secret`s
-(`postgres-credentials`, `rabbitmq-credentials`, `keycloak-admin-credentials`) los genera
-`deploy-to-kind.sh` en el momento del deploy, leyendo las mismas variables de entorno que
-`docker-compose.yml`/`.env.example` ya usan (`POSTGRES_PASSWORD`, `RABBITMQ_USER`,
-`RABBITMQ_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`), con el mismo valor de desarrollo por default si
-no hay override. El script carga `.env` en la raíz del repo automáticamente si existe (nunca
-committeado, ver `.gitignore`) -- copiar `.env.example` a `.env` y cambiar un valor ahí alcanza
-para que se propague igual a `docker-compose` y a `kind`, sin tocar ningún manifiesto.
+No YAML file in this directory has a password inside it — the 3 `Secret`s
+(`postgres-credentials`, `rabbitmq-credentials`, `keycloak-admin-credentials`) are generated by
+`deploy-to-kind.sh` at deploy time, reading the same environment variables
+`docker-compose.yml`/`.env.example` already use (`POSTGRES_PASSWORD`, `RABBITMQ_USER`,
+`RABBITMQ_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`), with the same development default if there is no
+override. The script loads `.env` at the repo root automatically if it exists (never committed,
+see `.gitignore`) — copying `.env.example` to `.env` and changing a value there is enough for it
+to propagate identically to `docker-compose` and to `kind`, with no manifest to touch.
 
-## Cómo llegar a los servicios desde fuera del clúster
+## Reaching the services from outside the cluster
 
-`infra/k8s/kind-config.yaml` mapea 3 puertos del Codespace directamente a los `NodePort` fijos de
-sus Services -- los mismos 3 puertos que `docker-compose.yml` y la colección de Postman ya usan,
-para que apuntar a "localhost" funcione igual con o sin `kind`:
+`infra/k8s/kind-config.yaml` maps 3 Codespace ports directly to the fixed `NodePort`s of their
+Services — the same 3 ports `docker-compose.yml` and the Postman collection already use, so
+pointing at "localhost" works identically with or without `kind`:
 
-| Puerto (Codespace) | Servicio             | Uso                                                                     |
-| ------------------- | --------------------- | -------------------------------------------------------------------------- |
-| `8081`               | Keycloak              | Obtener un token (`/realms/urlshortener/protocol/openid-connect/token`) |
-| `8082`               | API Gateway            | `/api/v1/**` y `GET /{shortCode}` (ver limitación abajo)                |
-| `8084`               | v2-shortener-service   | `/api/v2/urls`, `/api/v2/urls/bulk`, etc.                               |
+| Codespace port | Service | Use |
+| --- | --- | --- |
+| `8081` | Keycloak | Obtain a token (`/realms/urlshortener/protocol/openid-connect/token`) |
+| `8082` | API Gateway | `/api/v1/**` and `GET /{shortCode}` (see the limitation below) |
+| `8084` | v2-shortener-service | `/api/v2/urls`, `/api/v2/urls/bulk`, etc. |
 
-`v1-legacy-monolith`, `analytics-worker`, `bulk-processor` y la UI de administración de RabbitMQ
-(15672) son deliberadamente internos -- no forman parte de la superficie pública de este sistema
-(v1 solo se llega vía el Gateway) o no tienen ningún endpoint pensado para un caller externo. Para
-inspeccionarlos igual, sin agregar un mapeo permanente:
+`v1-legacy-monolith`, `analytics-worker`, `bulk-processor`, and RabbitMQ's management UI (15672)
+are deliberately internal — either they are not part of this system's public surface (V1 is only
+reached via the Gateway) or they have no endpoint meant for an external caller. To inspect them
+anyway, without adding a permanent mapping:
 
 ```bash
 kubectl -n url-shortener port-forward svc/rabbitmq 15672:15672
 kubectl -n url-shortener port-forward svc/v1-legacy-monolith 8080:8080
 ```
 
-**Limitación pre-existente, no introducida por este PR:** el API Gateway todavía no enruta
-`/api/v2/**` a los microservicios reales -- `GatewayRoutesConfig`/`V2StubController` (Día 1,
-Task #3) devuelven `501 Not Implemented` para ese prefijo, y nunca se actualizaron una vez que
-`v2-shortener-service` existió de verdad (Día 2, Task #4 en adelante). Por eso el tráfico V2 se
-expone directo contra `v2-shortener-service:30084` en vez de pasar por el Gateway -- exactamente
-como ya se prueba hoy vía Postman/curl fuera de Kubernetes. Cerrar esa brecha del Gateway es un
-cambio de código separado, fuera del alcance de este PR (solo K8s).
+**Pre-existing limitation, not introduced by this PR:** the API Gateway still does not route
+`/api/v2/**` to the real microservices — `GatewayRoutesConfig`/`V2StubController` (Day 1) return
+`501 Not Implemented` for that prefix, and were never updated once `v2-shortener-service` actually
+existed. That is why V2 traffic is exposed directly against `v2-shortener-service:30084` instead
+of going through the Gateway — exactly as it is already tested today via Postman/curl outside
+Kubernetes. Closing that Gateway gap is a separate code change (see `ARCHITECTURE.md` section 6,
+Scenario B — this repo's new-history plan folds that fix into the Day 2 "V2 cutover" scenario),
+out of scope for a Kubernetes-manifests-only PR.
 
 ## Smoke test
 
 ```bash
-# Token de Keycloak (usuario demo/demo_local del realm importado)
+# Keycloak token (the imported realm's demo/demo_local user)
 TOKEN=$(curl -s -X POST http://localhost:8081/realms/urlshortener/protocol/openid-connect/token \
   -H 'Content-Type: application/x-www-form-urlencoded' \
   -d 'grant_type=password&client_id=url-shortener-v2&username=demo&password=demo_local' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-# Crear un short link (V2)
+# Create a short link (V2)
 curl -s -X POST http://localhost:8084/api/v2/urls \
   -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
   -d '{"longUrl":"https://example.com"}'
 
-# V1, vía el Gateway
+# V1, via the Gateway
 curl -s http://localhost:8082/api/v1/urls -H 'Content-Type: application/json' \
   -d '{"longUrl":"https://example.com"}' -X POST
 ```
 
-## Diseño y decisiones (detalle también en `AI_USAGE_LOG.md`)
+## Design and decisions (more detail in `AI_USAGE_LOG.md`)
 
-- **Un solo `Dockerfile` parametrizado** (`ARG MODULE`) en la raíz del repo, en vez de uno por
-  módulo -- ver su propio comentario de cabecera.
-- **Ningún `Secret` vive como YAML committeado con un valor adentro** -- los tres se generan en
-  `deploy-to-kind.sh` a partir de variables de entorno (ver "Credenciales" arriba). Una revisión
-  de PR sobre una versión anterior de este directorio señaló justo esto en
-  `KEYCLOAK_ADMIN_PASSWORD`; el detalle de por qué ese cambio importa incluso cuando el valor de
-  por sí nunca fue real está en `AI_USAGE_LOG.md`.
-- **Sin almacenamiento persistente** (Postgres usa `emptyDir`, no una `PersistentVolumeClaim`):
-  ya declarado como limitación aceptada en `ARCHITECTURE.md` sección 13 para este clúster local y
-  descartable.
-- **`KC_HOSTNAME=keycloak` fijo en el Deployment de Keycloak**, la única divergencia deliberada
-  respecto a `docker-compose.yml` -- ver el comentario en `13-keycloak.yaml` sobre por qué el
-  claim `iss` de un token tiene que ser el mismo sin importar si quien lo pidió fue un pod del
-  clúster o un `curl` desde el Codespace.
-- **Namespace propio (`url-shortener`)**: `kubectl delete namespace url-shortener` limpia todo de
-  una vez.
-- **Sin Helm ni Kustomize**: 10 manifiestos `kubectl apply`-ables (más `kind-config.yaml`, que
-  no se aplica con `kubectl`), sin templating -- proporcional al tamaño de
-  este ejercicio; un despliegue real (ver el roadmap a GKE en `ARCHITECTURE.md` sección 9)
-  justificaría Helm/Kustomize para manejar de verdad múltiples entornos.
+- **A single parameterized `Dockerfile`** (`ARG MODULE`) at the repo root, instead of one per
+  module — see its own header comment.
+- **No `Secret` lives as committed YAML with a value inside it** — all three are generated in
+  `deploy-to-kind.sh` from environment variables (see "Credentials" above). A PR review on an
+  earlier version of this directory flagged exactly this on `KEYCLOAK_ADMIN_PASSWORD`; why that
+  change matters even when the value itself was never real is detailed in `AI_USAGE_LOG.md`.
+- **No persistent storage** (Postgres uses `emptyDir`, not a `PersistentVolumeClaim`): already
+  declared as an accepted limitation in `ARCHITECTURE.md` section 13 for this local, disposable
+  cluster.
+- **`KC_HOSTNAME=keycloak` fixed in Keycloak's Deployment**, the one deliberate divergence from
+  `docker-compose.yml` — see the comment in `13-keycloak.yaml` on why a token's `iss` claim has
+  to be the same regardless of whether the caller was a pod inside the cluster or a `curl` from
+  the Codespace.
+- **Its own namespace (`url-shortener`)**: `kubectl delete namespace url-shortener` cleans up
+  everything at once.
+- **No Helm or Kustomize**: 10 `kubectl apply`-able manifests (plus `kind-config.yaml`, which is
+  not applied with `kubectl`), no templating — proportional to this exercise's scope; a real
+  deployment (see the GKE roadmap in `ARCHITECTURE.md` section 9) would justify Helm/Kustomize to
+  actually manage multiple environments.
 
 ## Troubleshooting
 
-- `kubectl -n url-shortener get pods` -- si algo queda en `Pending`, casi siempre es un recurso
-  de CPU/memoria insuficiente en el Codespace; bajar los `resources.requests` de este directorio
-  es la salida documentada por `ARCHITECTURE.md` sección 7 ("si kind da problemas de recursos, se
-  demuestra todo con docker-compose").
-- `kubectl -n url-shortener logs deployment/<nombre>` -- el primer paso real de diagnóstico,
-  igual que pedir el output real de `mvn verify` en vez de adivinar (ver `AI_USAGE_LOG.md`).
-- `kubectl -n url-shortener describe pod <pod>` -- para un pod que nunca llega a `Ready`, revisa
-  el final: eventos de `readinessProbe`/`livenessProbe` fallando ahí mismo.
+### `kind create cluster` fails at "Starting control-plane" (a known state in Codespaces)
+
+If running the script shows something like:
+
+```text
+ ✗ Starting control-plane 🕹️
+ERROR: failed to create cluster: failed to remove control plane taint: ...
+The connection to the server url-shortener-control-plane:6443 was refused
+```
+
+...it is not a problem in this repo and does not need to be re-diagnosed: it already was, and
+the result is documented as a limitation in `ARCHITECTURE.md` section 13. `kind` **cannot bring
+up a cluster inside GitHub Codespaces**. These are the seven attempts and what each one ruled
+out:
+
+| # | Cores | `kind` | Node image | Config | Failure |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 2 | v0.24.0 | v1.31.0 | this repo's | remove LB label — connection refused |
+| 2 | 2 | v0.24.0 | v1.31.0 | this repo's | remove taint — connection refused |
+| 3 | 2 | latest | v1.37.0 | this repo's | remove LB label — connection refused |
+| 4 | 4 | latest | v1.37.0 | this repo's | control-plane, CNI and StorageClass OK; fails exporting kubeconfig: `admin.conf` missing |
+| 5 | 4 | latest | v1.31.0 | this repo's | remove taint — connection refused |
+| 6 | 4 | latest | v1.34.0 | this repo's | remove taint — `admin.conf` missing |
+| 7 | 4 | latest | v1.37.0 | **none** | remove taint — connection refused |
+
+Hypotheses ruled out, in order: `inotify` limits (already at 524288/1024), CPU and memory (the
+Codespace was upgraded from 2 to 4 cores and 8 to 16 GB — attempt 4 got much further, but 5 and 6
+failed again with 13 GB free), disk space (23 GB free, a clean `docker system df`), `kind`'s
+version, Kubernetes' version, and finally **this repo's own configuration**: attempt 7 created a
+bare cluster, with no `--config` and no file from this directory at all, and it failed the same
+way. That is what exonerates `kind-config.yaml` and the manifests.
+
+Known alternative if a genuinely running cluster is needed: `k3d` (k3s in Docker) does not use
+`kubeadm`, so this whole class of failure does not apply, and this directory's manifests are
+portable as-is (standard `Deployment`/`Service`/`NodePort`). Not adopted within this exercise's
+timebox.
+
+### General diagnostics
+
+- `kubectl -n url-shortener get pods` — if something stays `Pending`, it is almost always
+  insufficient CPU/memory in the Codespace; lowering this directory's `resources.requests` is the
+  documented way out per `ARCHITECTURE.md` section 7 ("if kind has resource trouble, demonstrate
+  everything with docker-compose instead").
+- `kubectl -n url-shortener logs deployment/<name>` — the first real diagnostic step, same
+  discipline as asking for `mvn verify`'s real output instead of guessing (see `AI_USAGE_LOG.md`).
+- `kubectl -n url-shortener describe pod <pod>` — for a pod that never reaches `Ready`, check the
+  end: `readinessProbe`/`livenessProbe` failure events show up right there.
 
 ## Teardown
 

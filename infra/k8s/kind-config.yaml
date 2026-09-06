@@ -19,6 +19,16 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
+    # Pinned instead of letting kind default to whatever Kubernetes its newest release happens to
+    # ship: a reviewer running this months from now should get the same Kubernetes this was
+    # written against, not one released after it. Left deliberately at a well-established minor
+    # rather than the latest -- during this repo's own attempts, kind's default floated to a
+    # Kubernetes released only weeks earlier, which is the wrong thing to hand a reviewer.
+    # Honest caveat: NO version was ever verified end-to-end here, because kind could not
+    # bootstrap a control plane in a GitHub Codespace at all -- with this file or without it.
+    # See ARCHITECTURE.md section 13 and this directory's README (Troubleshooting) for the full
+    # elimination log.
+    image: kindest/node:v1.34.0
     extraPortMappings:
       - containerPort: 30081
         hostPort: 8081
