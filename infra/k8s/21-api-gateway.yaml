@@ -24,12 +24,40 @@ spec:
           env:
             - name: V1_LEGACY_MONOLITH_URL
               value: http://v1-legacy-monolith:8080
+            # Added when the Gateway stopped being a 501 stub for /api/v2/** and gained real
+            # V1/V2 dispatch (GatewayRoutesConfig + DynamicShortCodeRoutingFilter). Without these
+            # three the Gateway does not fail loudly -- it silently serves every short code from
+            # V1, because the filter cannot tell "no Redis configured" apart from "Redis is down"
+            # and its documented fallback for the latter is exactly that. That silence is why
+            # they are spelled out here instead of being left to application.yml's localhost
+            # defaults, which resolve to nothing inside a pod.
+            - name: V2_SHORTENER_SERVICE_URL
+              value: http://v2-shortener-service:8084
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+          # A slow start is not a hang, and initialDelaySeconds cannot tell them apart: it
+          # picks one fixed number that is either too short (the container is killed while
+          # still booting) or too long (a real hang goes undetected for that whole window).
+          # startupProbe is the mechanism for exactly this -- it holds readiness and liveness
+          # off until the app answers once, then hands over to them unchanged and strict.
+          # 30 x 10s = up to 5 minutes to boot, which a JVM sharing a single-node cluster with
+          # four other JVMs, Postgres, Redis, RabbitMQ and Keycloak genuinely needs.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8082
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
               port: 8082
             initialDelaySeconds: 10
             periodSeconds: 5
+            timeoutSeconds: 5
             failureThreshold: 12
           livenessProbe:
             httpGet:
@@ -37,6 +65,7 @@ spec:
               port: 8082
             initialDelaySeconds: 20
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 6
           resources:
             requests:
@@ -47,13 +76,15 @@ spec:
               memory: 512Mi
 ---
 # NodePort, not ClusterIP: this is the system's documented single entry point (Strangler Fig,
-# ARCHITECTURE.md section 3.1) for /api/v1/** and the public GET /{shortCode} redirect, so it is
-# one of the three services this PR exposes outside the cluster (see infra/k8s/kind-config.yaml).
-# NOT yet a usable entry point for /api/v2/**: GatewayRoutesConfig/V2StubController (unchanged by
-# this PR, see infra/k8s/README.md) still return 501 for that prefix -- a pre-existing gap from
-# Day 1/Task #3 that was never closed once the real V2 service existed, out of scope here. V2
-# traffic is exposed directly against v2-shortener-service instead (see
-# 22-v2-shortener-service.yaml), the same way it is already exercised via Postman/curl today.
+# ARCHITECTURE.md section 3.1) for /api/v1/**, /api/v2/** and the public GET /{shortCode}
+# redirect, so it is one of the three services exposed outside the cluster (see kind-config.yaml
+# and k3d-config.yaml, which map the same three host ports to the same three NodePorts).
+# The 501 stub this comment used to describe is gone: GatewayRoutesConfig routes /api/v2/** to
+# v2-shortener-service, and DynamicShortCodeRoutingFilter resolves each short code against Redis
+# to choose V1 or V2 per request. v2-shortener-service keeps its own NodePort regardless (see
+# 22-v2-shortener-service.yaml): the Postman collection and this repo's curl examples address it
+# directly, and keeping that path open is what lets the Gateway be exercised as a cutover switch
+# rather than being the only way in.
 apiVersion: v1
 kind: Service
 metadata:
