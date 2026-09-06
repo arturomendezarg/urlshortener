@@ -6,7 +6,8 @@
 # the repo root itself so it never depends on the caller's current directory.
 #
 # Idempotent: safe to re-run after a code change. It reuses the existing kind cluster if one
-# named "url-shortener" is already running (no destructive recreate), rebuilds/reloads all five
+# named "url-shortener" is already running AND has a Ready node (never a destructive recreate --
+# on a half-created cluster it stops and says how to inspect it), rebuilds/reloads all five
 # images unconditionally (fast: mvn's own incremental compilation and Docker's layer cache both
 # still apply), and `kubectl apply` on unchanged manifests is a no-op. Deployments are also
 # rollout-restarted after re-applying so a new image with the *same* tag is actually picked up --
@@ -22,11 +23,32 @@ MODULES=(v1-legacy-monolith api-gateway v2-shortener-service analytics-worker bu
 
 echo "==> Repo root: ${REPO_ROOT}"
 
-echo "==> Ensuring kind cluster '${CLUSTER_NAME}' exists..."
-if ! kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
-  kind create cluster --name "${CLUSTER_NAME}" --config "${SCRIPT_DIR}/kind-config.yaml"
+echo "==> Ensuring kind cluster '${CLUSTER_NAME}' exists and is usable..."
+if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+  # "Exists" is not the same as "usable", and this script used to conflate the two: it checked
+  # only that a cluster with this NAME was listed. A failed `kind create cluster` can leave a
+  # half-created cluster behind (most easily reproduced with --retain, but also whenever a node
+  # container outlives an aborted run): `kind get clusters` lists it, yet the node never became
+  # Ready, because kind aborts BEFORE its CNI-install step and the cluster has no pod network at
+  # all. Reusing such a cluster meant this script went on to build five images and apply every
+  # manifest against an unusable node, failing minutes later with a far more confusing error
+  # than the real one. So verify readiness, not just existence.
+  if kubectl --context "kind-${CLUSTER_NAME}" get nodes \
+      -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null \
+      | grep -q True; then
+    echo "    Already running with a Ready node, reusing it."
+  else
+    echo "ERROR: a kind cluster named '${CLUSTER_NAME}' exists but has no Ready node." >&2
+    echo "       It was most likely left behind by a failed creation." >&2
+    echo "       This script deliberately does NOT delete it for you: that is destructive, and a" >&2
+    echo "       broken node is usually the only place the real cause is still readable." >&2
+    echo "       Inspect:  kubectl --context kind-${CLUSTER_NAME} get nodes" >&2
+    echo "                 docker exec ${CLUSTER_NAME}-control-plane journalctl -u kubelet --no-pager | tail -100" >&2
+    echo "       Recreate: kind delete cluster --name ${CLUSTER_NAME} && ${BASH_SOURCE[0]}" >&2
+    exit 1
+  fi
 else
-  echo "    Already running, reusing it."
+  kind create cluster --name "${CLUSTER_NAME}" --config "${SCRIPT_DIR}/kind-config.yaml"
 fi
 kubectl config use-context "kind-${CLUSTER_NAME}"
 
