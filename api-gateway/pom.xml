@@ -14,9 +14,10 @@
   <packaging>jar</packaging>
   <name>API Gateway</name>
   <description>
-    Single entry point (Strangler Fig pattern): routes /api/v1/** to Monolith V1 and exposes
-    the public redirect GET /{shortCode}. /api/v2/** responds with a documented 501 stub until
-    the V2 service exists (see ARCHITECTURE.md, section 3.1 and section 7 - emergency cutover).
+    Single entry point (Strangler Fig pattern): routes /api/v1/** to Monolith V1, /api/v2/** to
+    v2-shortener-service, and exposes the public redirect GET /{shortCode}, resolving each short
+    code against Redis to dispatch that one request to V1 or V2 (see ARCHITECTURE.md, section 3.1
+    and section 7 - emergency cutover).
   </description>
 
   <properties>

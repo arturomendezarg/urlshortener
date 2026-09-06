@@ -1,0 +1,68 @@
+# k3d cluster config (NOT a kubectl-apply-able manifest -- passed to `k3d cluster create
+# --config`). The k3d counterpart of kind-config.yaml, deliberately kept as its own committed
+# file for the same reason that one is: the host port mappings below CANNOT be added to a
+# cluster after the fact, so they have to be reviewable in git rather than living in whatever
+# flags the last person happened to type.
+#
+# Why k3d exists here alongside kind: `kind` cannot bootstrap a control plane inside a GitHub
+# Codespace (7 attempts, full elimination table in README.md's Troubleshooting section). k3d runs
+# k3s, which never invokes kubeadm, so that entire class of failure does not apply -- and this
+# was verified end-to-end, not assumed: see README.md's "Verified status".
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: url-shortener
+
+# One server node, no agents -- the same single-node shape kind-config.yaml declares. This is a
+# disposable local cluster for a demo, not a topology exercise.
+servers: 1
+agents: 0
+
+# Pinned to the exact k3s this repo was actually verified against (`kubectl get nodes` reported
+# v1.35.5+k3s1; container tags spell that same version with a dash). Same reasoning as
+# kind-config.yaml's pinned node image -- a reviewer running this months from now should get what
+# was tested, not whatever k3d's default floated to since. The difference is that this pin is
+# backed by a real successful run, and kind-config.yaml's honestly never could be.
+image: docker.io/rancher/k3s:v1.35.5-k3s1
+
+# The same 3 host ports kind-config.yaml maps, to the same 3 fixed NodePorts declared by
+# 13-keycloak.yaml, 21-api-gateway.yaml and 22-v2-shortener-service.yaml -- and therefore the same
+# ports docker-compose.yml and this project's Postman collection already use. Pointing anything at
+# localhost works identically with docker-compose, kind, or k3d.
+#
+# Consequence worth stating plainly, because it is the first thing that bites: `docker-compose up`
+# and this cluster CANNOT run at the same time. They deliberately claim the same host ports, and
+# cluster creation fails with "port is already allocated" if the compose stack is still up. Run
+# `docker-compose down` first -- the cluster brings up its own Postgres/Redis/RabbitMQ/Keycloak.
+#
+# v1-legacy-monolith, analytics-worker, bulk-processor and RabbitMQ's management UI are
+# deliberately not mapped, same as in kind-config.yaml: reach them with `kubectl port-forward` on
+# demand instead of permanently reserving a host port.
+ports:
+  - port: "8081:30081"
+    nodeFilters:
+      - server:0
+  - port: "8082:30082"
+    nodeFilters:
+      - server:0
+  - port: "8084:30084"
+    nodeFilters:
+      - server:0
+
+options:
+  k3d:
+    wait: true
+    timeout: "180s"
+  k3s:
+    extraArgs:
+      # k3s ships Traefik and metrics-server enabled by default. Neither is used here -- every
+      # externally reachable Service in this directory is a NodePort, and nothing reads pod
+      # metrics -- and both cost memory that the 5 JVM services actually need in a Codespace.
+      # Disabled deliberately, not out of superstition: if an Ingress is ever added, re-enable
+      # Traefik here rather than working around its absence.
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+      - arg: --disable=metrics-server
+        nodeFilters:
+          - server:*
