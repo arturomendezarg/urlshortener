@@ -20,7 +20,7 @@
   </description>
 
   <properties>
-    <spring-cloud.version>2023.0.3</spring-cloud.version>
+    <spring-cloud.version>2025.1.3</spring-cloud.version>
     <!-- Same version already pinned in v2-shortener-service/pom.xml, kept in sync manually
          (no shared testcontainers-bom import at the parent level yet — see that module's own
          property for the precedent this follows). -->
