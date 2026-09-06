@@ -5,7 +5,7 @@ Continuous log of decisions made during AI-assisted execution (see template and 
 ## 2026-09-04 — [Process/Git] PR #1 — Two-account model for traceability
 
 - **Prompt:** "no sera bueno tambien que generemos otro usuario especificamente sobre todo los casos donde el AI tienen que genrear los features"
-- **AI-generated:** guided creation of the `art-claude-dev` account (the signup itself was done by the user, since it requires a browser), invited as a collaborator, updated `ARCHITECTURE.md` §8.1 replacing the trailer convention with two real identities, hardened branch protection to `enforce_admins: true`.
+- **AI-generated:** guided creation of the `claude-dev-art` account (the signup itself was done by the user, since it requires a browser), invited as a collaborator, updated `ARCHITECTURE.md` §8.1 replacing the trailer convention with two real identities, hardened branch protection to `enforce_admins: true`.
 - **Decision:** Accepted.
 - **Reason:** resolves the limitation that the engineer cannot approve their own PR — the required review on `main` becomes a genuine human review instead of an admin bypass.
 
@@ -134,7 +134,7 @@ Continuous log of decisions made during AI-assisted execution (see template and 
 - **Prompt:** "vuelve a validar, como forzamos este punto: enforce secure AI usage".
 - **AI-generated / directly executed:**
   - Verified (did not assume) the real state of `main`'s protection via `GET /repos/.../branches/main/protection`: `enforce_admins: true`, `required_approving_review_count: 1`, `dismiss_stale_reviews: true`, `allow_force_pushes: false` — all exactly as documented, this time confirmed against the API instead of just taking a past PR's word for it.
-  - Verified the real scopes of `art-claude-dev`'s token (`repo`, `read:org`, `workflow`, no `admin`) and its collaborator permissions (`admin: false`) against the repo.
+  - Verified the real scopes of `claude-dev-art`'s token (`repo`, `read:org`, `workflow`, no `admin`) and its collaborator permissions (`admin: false`) against the repo.
   - Created the 3 labels (`ai:accepted`, `ai:adjusted`, `ai:rejected`) and applied them retroactively: PR #5 → `ai:adjusted`, PR #6 → `ai:adjusted`, PR #7 → `ai:accepted`, PR #8 → `ai:adjusted`.
   - Added `ARCHITECTURE.md §8.2 "Secure AI Usage"`, consolidating: no real credentials, no access to production infrastructure, the AI's own network-restricted execution environment (honestly noted: not a measure designed for this project, it's a sandbox property, but it's real and worth stating), secret scanning, Dependabot, and the verified detail of branch protection + the bot token's least privilege.
 - **Decision:** pending engineer review (see PR).
@@ -230,14 +230,14 @@ Continuous log of decisions made during AI-assisted execution (see template and 
 
 ## 2026-09-04 — [Fix] PR #25 — Removed `WhoAmIController`, test the filter chain directly instead
 
-- **Prompt:** review comment from `artmendezarg` on `WhoAmIController.java`: "Why we need to kwno who we are, this can be achive in a method, why a controller is needed?"
+- **Prompt:** review comment from `arturomendezarg` on `WhoAmIController.java`: "Why we need to kwno who we are, this can be achive in a method, why a controller is needed?"
 - **Diagnosis:** valid critique — `WhoAmIController` added a real, permanently-shipped REST endpoint to production code whose only purpose was making the Resource Server config testable. The actual thing to prove (a request with no token is rejected, a request with a valid token is accepted) does not require any controller at all: Spring Security's filter chain runs before `DispatcherServlet` resolves a handler, so hitting a URL with no token is rejected with `401` regardless of whether anything is mapped there, and hitting the same URL with a valid token clears security and reaches `DispatcherServlet`, which returns `404` if nothing is mapped yet — a `404` (not `401`) is itself proof the token was accepted.
 - **Fix applied:** deleted `WhoAmIController.java` entirely — this module now ships no business or diagnostic endpoints, only `SecurityConfig` and actuator. `KeycloakResourceServerIntegrationTest` (moved from the now-empty `web` package to `config`, next to `SecurityConfig`) was rewritten to hit `/api/v2/urls` (one of the six real, not-yet-implemented OpenAPI contract endpoints, used purely as a stand-in URL) directly: no token → `401`; a real token from the Keycloak container → `404`. Added a third test confirming `/actuator/health` stays public with no token. Net effect: the same security behavior is proven, with less shipped code, not more.
 - **Decision:** Adjusted — fixed on the same branch (`feature/keycloak-resource-server`).
 
 ## 2026-09-04 — [Fix] PR #25 — Removed duplicated hardcoded password, added a mock-based fast test
 
-- **Prompt:** two review comments from `artmendezarg`: on `infra/keycloak/realm-export.json` ("Why we save pasword in files?") and on the integration test ("Why keep Passwords in files, I am agree for testing but is pretty similar to the config and we can mock it").
+- **Prompt:** two review comments from `arturomendezarg`: on `infra/keycloak/realm-export.json` ("Why we save pasword in files?") and on the integration test ("Why keep Passwords in files, I am agree for testing but is pretty similar to the config and we can mock it").
 - **Diagnosis:** two distinct, both fair points. (1) The realm file's test-user password is a throwaway local dev/test value — same category as the Postgres/RabbitMQ/Keycloak admin passwords already committed as literal defaults in `docker-compose.yml` (ARCHITECTURE.md §8.2: no real credentials, ever), and Keycloak's realm-export JSON format has no env-var templating like docker-compose's `${VAR:-default}` to parameterize it further. (2) The integration test DID needlessly hardcode a second copy of that same value in Java — a real, avoidable duplication, independent of whether the value itself is sensitive. Separately, the suggestion to "mock it" is a legitimate complementary testing strategy this project hadn't used yet for security config specifically.
 - **Fix applied:**
   - `KeycloakResourceServerIntegrationTest` no longer declares `TEST_USERNAME`/`TEST_PASSWORD` constants. A new `@BeforeAll loadTestUserCredentials()` reads both fields directly out of `infra/keycloak/realm-export.json` (the same file already referenced via the `keycloak.realm-export.path` system property) using Jackson. One source of truth for the credential value, not two.
@@ -536,7 +536,7 @@ Continuous log of decisions made during AI-assisted execution (see template and 
 
 ## 2026-09-05 — [Fix] PR #30 — Review feedback: stop committing Secret values in plain YAML
 
-- **Prompt:** review comment from `artmendezarg` on `infra/k8s/01-secrets.yaml` line 47
+- **Prompt:** review comment from `arturomendezarg` on `infra/k8s/01-secrets.yaml` line 47
   (`KEYCLOAK_ADMIN_PASSWORD: admin_local`): "can you hide this password", plus a review body
   "Check the passsword validation" — read via `gh api repos/.../pulls/30/comments` and
   `.../pulls/30/reviews` (`gh pr view --comments` itself failed with an unrelated GraphQL
@@ -589,4 +589,76 @@ Continuous log of decisions made during AI-assisted execution (see template and 
 - **Declared risks:**
   - Same standing risk as every previous PR: no Maven Central reachable from this AI's own sandbox, so neither new test class was compiled or run locally.
   - `BulkJobServiceIntegrationTest`'s message-consumability test asserts against a queue this test itself declares, not bulk-processor's own queue/DLQ setup (a different Spring context entirely) — it proves the message v2-shortener-service publishes is well-formed and consumable, not that bulk-processor's own consumer configuration is correct; that remains bulk-processor's own test suite's responsibility.
+- **Decision:** Accepted — merged as PR #31.
+
+## 2026-09-06 — [Process/Docs/Fix] Repository carryover, Day-plan restructure, Gateway V1/V2 dynamic dispatch
+
+- **Task:** the engineer pushed this project's full history into a new repository/account
+  (`arturomendezarg/urlshortener`) to keep the audit trail scoped to just the three exercise
+  scenarios (greenfield/brownfield/ambiguous) going forward, with English-only documentation. Two
+  intermediate commits landed directly on `main` before this PR (`arturomendezarg`, bypassing
+  branch protection because it has not been reconfigured yet on the new repository — a real,
+  declared gap, not hidden): a plain English translation of `README.md`/`ARCHITECTURE.md`, and an
+  "Upload urlshorter services" commit that added two previously-delivered `.patch` files plus a
+  roadmap markdown as inert files under `Claude outputs/`, rather than actually applying them.
+- **Prompt:** "regenera el workflow y crea un nuevo PR" after confirming the new repository
+  carries the old repository's full history rather than starting empty (the engineer's explicit
+  choice, made after being shown the evidence: 90 commits, the same 9 Dependabot PRs, a merge
+  commit literally referencing `artmendezarg/docs/dual-account-git-workflow`).
+- **AI-generated:**
+  - Applied the `Claude outputs/0001-kind-health-check-and-limitation.patch` content for real
+    (it had only ever existed as an inert file): `infra/k8s/deploy-to-kind.sh` now checks a Ready
+    node, not just a same-named cluster, before reusing it; `infra/k8s/kind-config.yaml` pins
+    `kindest/node:v1.34.0`. Confirmed `0001-bulk-job-integration-tests.patch`'s content was
+    already real (carried over as part of merged PR #31) — deleted both `.patch` files and the
+    roadmap copy; `Claude outputs/` is not a real project directory.
+  - Replaced the engineer's plain-translation pass on `README.md`/`ARCHITECTURE.md` with the
+    fuller rewrite already prepared and validated earlier this session: the Day-by-Day plan
+    restructured around Day 1 (Greenfield construction), Day 2 (Brownfield — two concrete
+    scenarios: V1-only baseline, V2 cutover alongside V1), Day 3 (Ambiguous-requirement tests,
+    a deliberate plaintext-credential rejection demo, final docs); every `artmendezarg` reference
+    updated to `arturomendezarg` to match the new account. Presented as a PR, per this project's
+    own rule, rather than silently overwriting the engineer's own direct-to-`main` commit.
+  - Translated `infra/k8s/README.md` to English (previously untranslated) and fixed the same
+    `|---|---|` compact-table-separator `MD060` violation found and fixed in `ARCHITECTURE.md`
+    earlier the same session.
+  - **Real fix, not just documentation:** `api-gateway`'s Strangler Fig routing was still the
+    Day-1 stub — confirmed by rereading `GatewayRoutesConfig`'s own long-standing comment
+    ("added once V2 exists with its own index") and `infra/k8s/README.md`'s own "pre-existing
+    limitation, not introduced by this PR" note, both of which already said so. V2 has written to
+    its Redis index since it was built; nobody had wired the Gateway back up to read it. Without
+    this, the new Day 2 "V2 cutover alongside V1" scenario would have nothing real to test. Added
+    `DynamicShortCodeRoutingFilter` (checks `shortlink:v2:<code>` in Redis per request, routes to
+    V2 if present, V1 otherwise, fails safe to V1 on a Redis error), wired it into
+    `GatewayRoutesConfig`'s `/{shortCode}` route, added a real `/api/v2/**` route to the actual
+    V2 service, and deleted `V2StubController` (dead code once that route exists). New tests:
+    `GatewayRoutingIntegrationTest` (extended with real V2 routing + both dispatch directions,
+    real Redis via Testcontainers) and `DynamicShortCodeRoutingFilterRedisOutageTest` (Redis
+    stopped mid-test, asserts fail-safe to V1 — same chaos-test shape as
+    `RateLimiterRedisOutageTest`/`ShortLinkRedisOutageIntegrationTest`). Added
+    `spring-boot-starter-data-redis-reactive` (the Gateway's WebFlux stack cannot use the
+    blocking client V2 itself uses) and excluded the new filter's Redis-client field from
+    `EI_EXPOSE_REP2` in `spotbugs-exclude.xml`, joining the existing, documented group of
+    constructor-injected-collaborator exclusions (`ShortLinkCache`, `RateLimiter`, etc.).
+- **Researched first:** reread the actual current file contents in the new repository (not this
+  session's own stale local copy) before writing anything, specifically to avoid silently
+  clobbering the engineer's own direct commits; diffed the two translations section-by-section
+  rather than assuming mine should simply replace theirs.
+- **Verification:** `markdownlint-cli2` clean (0 errors) across every changed `.md` file.
+  Mechanical import/tab/trailing-newline checks clean on every new/changed Java file. Real
+  `mvn verify` was **not** possible from this AI's own sandbox — Maven Central still returns
+  `403 Forbidden` through its proxy, the same standing, previously logged limitation — so
+  `DynamicShortCodeRoutingFilter` and its tests are unverified by an actual build. Written
+  against Spring Cloud Gateway's own documented `GATEWAY_REQUEST_URL_ATTR` mechanism, not a
+  private API, but that is a design justification, not a substitute for the engineer's own
+  `mvn verify`/CI run — flagged explicitly rather than presented as tested.
+- **Not modified:** no other service's code; branch protection on the new repository (still
+  needs to be reconfigured from scratch in GitHub Settings — it is a repository setting, not
+  part of git history, so it did not carry over with the push).
+- **Declared risks:** the two direct-to-`main` commits that preceded this PR were not themselves
+  reviewed through the PR flow this project is built around — a fact this entry records rather
+  than papers over. `DynamicShortCodeRoutingFilter` is new, unverified-by-build production code
+  behind the entire Day 2 brownfield story; if `mvn verify`/CI surfaces a real defect in it,
+  that failure should be diagnosed from CI's real output, per this project's own standing rule,
+  not patched from guesswork.
 - **Decision:** pending engineer review (see PR).
