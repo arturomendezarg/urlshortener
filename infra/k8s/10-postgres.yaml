@@ -34,12 +34,14 @@ spec:
               command: ["pg_isready", "-U", "urlshortener"]
             initialDelaySeconds: 5
             periodSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 10
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", "urlshortener"]
             initialDelaySeconds: 15
             periodSeconds: 10
+            timeoutSeconds: 3
             failureThreshold: 6
           resources:
             requests:

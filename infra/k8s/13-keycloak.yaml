@@ -58,12 +58,24 @@ spec:
           volumeMounts:
             - name: realm-import
               mountPath: /opt/keycloak/data/import
+          # Keycloak's probe endpoint is right and does pass -- it was measured booting in
+          # ~41s (realm import included), which simply outran the old initialDelaySeconds/
+          # failureThreshold window whenever the node was busy. Same reasoning as the app
+          # tier: let a startupProbe own the boot, keep liveness strict afterwards.
+          startupProbe:
+            httpGet:
+              path: /realms/urlshortener
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /realms/urlshortener
               port: 8080
             initialDelaySeconds: 20
             periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 12
           livenessProbe:
             httpGet:
@@ -71,6 +83,7 @@ spec:
               port: 8080
             initialDelaySeconds: 45
             periodSeconds: 15
+            timeoutSeconds: 5
             failureThreshold: 8
           resources:
             requests:

@@ -34,18 +34,31 @@ spec:
                 secretKeyRef:
                   name: rabbitmq-credentials
                   key: RABBITMQ_PASSWORD
+          # rabbitmq-diagnostics is not a cheap health check: every invocation boots a whole
+          # Erlang CLI node to talk to the broker, which takes seconds. Kubernetes' default
+          # timeoutSeconds is 1, and this file used to declare none -- so the probe could never
+          # pass, no matter how healthy the broker was. Observed exactly that: the log said
+          # "Server startup complete; 5 plugins started" and "Time to start RabbitMQ: 19407 ms"
+          # while the pod sat at 0/1 until the liveness probe killed it. Hence an explicit
+          # timeout on all three probes, and a startupProbe to own the boot window.
+          startupProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 20
           readinessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            failureThreshold: 10
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
           livenessProbe:
             exec:
               command: ["rabbitmq-diagnostics", "-q", "ping"]
-            initialDelaySeconds: 30
-            periodSeconds: 15
-            failureThreshold: 6
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 5
           resources:
             requests:
               cpu: 100m

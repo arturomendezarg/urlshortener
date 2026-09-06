@@ -128,7 +128,10 @@ kubectl apply -f "${SCRIPT_DIR}/12-rabbitmq.yaml"
 kubectl apply -f "${SCRIPT_DIR}/13-keycloak.yaml"
 
 echo "==> Waiting for infra to be ready before starting the app tier..."
-kubectl -n "${NAMESPACE}" wait --for=condition=available --timeout=180s \
+# 300s, not 180s: Keycloak alone was measured at ~41s to boot with its realm import, and every
+# container here now owns its boot window through a startupProbe worth up to 5 minutes. A wait
+# shorter than the startupProbe it is waiting on just reports a failure the cluster does not have.
+kubectl -n "${NAMESPACE}" wait --for=condition=available --timeout=300s \
   deployment/postgres deployment/redis deployment/rabbitmq deployment/keycloak
 
 echo "==> Applying the app tier..."
@@ -144,7 +147,7 @@ kubectl -n "${NAMESPACE}" rollout restart \
   deployment/analytics-worker deployment/bulk-processor
 
 echo "==> Waiting for the app tier to become available..."
-kubectl -n "${NAMESPACE}" wait --for=condition=available --timeout=180s \
+kubectl -n "${NAMESPACE}" wait --for=condition=available --timeout=300s \
   deployment/v1-legacy-monolith deployment/api-gateway deployment/v2-shortener-service \
   deployment/analytics-worker deployment/bulk-processor
 
