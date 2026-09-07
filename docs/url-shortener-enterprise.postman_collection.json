@@ -1,1119 +1,1074 @@
 {
-  "info": {
-    "_postman_id": "b8e2a4b0-1a2b-4c3d-9e5f-url-shortener-01",
-    "name": "URL Shortener - Enterprise (Greenfield & Brownfield)",
-    "description": "Reviewer-facing Postman collection for the url-shortener take-home exercise. Two independent flows:\n\n- **Greenfield**: exercises V2 directly as if it were the only system that ever existed (no V1 framing) - the shape of the API surface a true greenfield build would present.\n- **Brownfield**: exercises V1 first as the pre-existing baseline, then represents a 'V2 cutover' commit and shows how the Gateway's routing behaves for a brand-new V2 code before and after it has been read directly against V2 - reproducing the documented cache-as-index defect live (see 'Known defect' in infra/k8s/README.md).\n\nRun '0. Auth' once first to obtain a token; every other request reuses it via the {{accessToken}} collection variable. Import the companion environment file (url-shortener-enterprise.postman_environment.json) and select it before running - it covers both Option A (docker-compose + mvn spring-boot:run) and Option B (k3d) since both expose the same localhost ports (see README.md \"For reviewers: setup and verification\").",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "item": [
-    {
-      "name": "0. Auth",
-      "description": "Obtains a Keycloak access token for the 'urlshortener' realm using the Resource Owner Password Credentials grant, and stores it as a collection variable ({{accessToken}}) so every V2 request below can reuse it. Run this request first.",
-      "item": [
-        {
-          "name": "Get access token (Resource Owner Password grant)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/x-www-form-urlencoded"
-              }
-            ],
-            "url": {
-              "raw": "{{keycloakUrl}}/realms/urlshortener/protocol/openid-connect/token",
-              "host": [
-                "{{keycloakUrl}}"
-              ],
-              "path": [
-                "realms",
-                "urlshortener",
-                "protocol",
-                "openid-connect",
-                "token"
-              ]
-            },
-            "body": {
-              "mode": "urlencoded",
-              "urlencoded": [
-                {
-                  "key": "grant_type",
-                  "value": "password"
-                },
-                {
-                  "key": "client_id",
-                  "value": "{{clientId}}"
-                },
-                {
-                  "key": "client_secret",
-                  "value": "{{clientSecret}}"
-                },
-                {
-                  "key": "username",
-                  "value": "{{keycloakUsername}}"
-                },
-                {
-                  "key": "password",
-                  "value": "{{keycloakPassword}}"
-                }
-              ]
-            },
-            "description": "Uses the 'urlshortener-client' confidential client against the realm imported at cluster/stack startup (infra/k8s/13-keycloak.yaml or the docker-compose Keycloak service). Set keycloakUsername/keycloakPassword in the environment to a real user of that realm before running."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Token endpoint returns 200', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const body = pm.response.json();",
-                  "pm.test('Response contains an access_token', function () {",
-                  "    pm.expect(body).to.have.property('access_token');",
-                  "});",
-                  "",
-                  "if (body.access_token) {",
-                  "    pm.collectionVariables.set('accessToken', body.access_token);",
-                  "}",
-                  "",
-                  "// Decode the JWT payload (no signature check - this is a reviewer",
-                  "// convenience, not a security check) to surface the issuer being",
-                  "// used, which matters for the Keycloak KC_HOSTNAME fix documented",
-                  "// in infra/k8s/README.md and ARCHITECTURE.md.",
-                  "if (body.access_token) {",
-                  "    const payloadB64 = body.access_token.split('.')[1];",
-                  "    const decoded = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));",
-                  "    console.log('Token issuer (iss):', decoded.iss);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "1. Greenfield - V2 as the primary system",
-      "description": "Exercises V2 directly, treating it as the only system in existence - no V1 fallback framing, matching this project's own stance that V1 is a didactic 'legacy' simulation and a real greenfield build would only ever have V2. Covers create/redirect, custom alias, duplicate alias (409), reserved slug (400), invalid input (400), expiration (410), device-classified redirect rules, and the async bulk submit+poll flow. Run '0. Auth' first.",
-      "item": [
-        {
-          "name": "Create short link (V2)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/api/v2/urls",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "api",
-                "v2",
-                "urls"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"longUrl\": \"https://www.anthropic.com/claude-code\",\n  \"expiresAt\": null\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "description": "Baseline V2 create, exercised as if V2 were the only system (no V1 fallback framing)."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Create returns 201', function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "",
-                  "const body = pm.response.json();",
-                  "pm.test('Response has a shortCode', function () {",
-                  "    pm.expect(body).to.have.property('shortCode');",
-                  "});",
-                  "",
-                  "if (body.shortCode) {",
-                  "    pm.collectionVariables.set('gfShortCode', body.shortCode);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "Redirect via V2 directly (302)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{v2Url}}/{{gfShortCode}}",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "{{gfShortCode}}"
-              ]
-            },
-            "description": "V2's redirect endpoint is public (no token) and returns 302 FOUND with a Location header."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Redirect returns 302', function () {",
-                  "    pm.response.to.have.status(302);",
-                  "});",
-                  "pm.test('Location header points at the original longUrl', function () {",
-                  "    pm.expect(pm.response.headers.get('Location')).to.eql('https://www.anthropic.com/claude-code');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        },
-        {
-          "name": "Redirect via Gateway (routes to V2)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{gatewayUrl}}/{{gfShortCode}}",
-              "host": [
-                "{{gatewayUrl}}"
-              ],
-              "path": [
-                "{{gfShortCode}}"
-              ]
-            },
-            "description": "Soft assertion: accepts 302 or 404. A fresh V2 code can 404 here until read once directly against V2, because the Gateway currently uses ShortLinkCache (a TTL'd read-through cache) as if it were a durable ownership index. See the 'Known defect' section in infra/k8s/README.md."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Gateway resolves the V2 code', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([302, 404]);",
-                  "});",
-                  "if (pm.response.code === 302) {",
-                  "    pm.test('Location header matches the original longUrl', function () {",
-                  "        pm.expect(pm.response.headers.get('Location')).to.eql('https://www.anthropic.com/claude-code');",
-                  "    });",
-                  "} else {",
-                  "    console.warn('Gateway returned 404 for a fresh V2 code - this is the ",
-                  "documented cache-as-index defect (see README.md \"Known defect\"). Run ",
-                  "\"Redirect via V2 directly\" above first to warm the cache, then retry.');",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        },
-        {
-          "name": "Create with custom alias",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/api/v2/urls",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "api",
-                "v2",
-                "urls"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"longUrl\": \"https://docs.claude.com\",\n  \"customAlias\": \"{{customAliasValue}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Create with custom alias returns 201', function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "const body = pm.response.json();",
-                  "pm.test('shortCode matches the requested alias', function () {",
-                  "    pm.expect(body.shortCode).to.eql(pm.environment.get('customAliasValue') || pm.collectionVariables.get('customAliasValue'));",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "Duplicate alias is rejected (409)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/api/v2/urls",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "api",
-                "v2",
-                "urls"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"longUrl\": \"https://example.com/another-target\",\n  \"customAlias\": \"{{customAliasValue}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "description": "Run after 'Create with custom alias' - reuses the same alias to trigger DuplicateAliasException."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Reusing an alias returns 409', function () {",
-                  "    pm.response.to.have.status(409);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "Reserved slug is rejected (400)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/api/v2/urls",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "api",
-                "v2",
-                "urls"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"longUrl\": \"https://example.com/reserved-test\",\n  \"customAlias\": \"api\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "description": "'api' collides with V2's own routing namespace and is on the reserved-slug list."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Reserved slug returns 400', function () {",
-                  "    pm.response.to.have.status(400);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "Invalid longUrl is rejected (400)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/api/v2/urls",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "api",
-                "v2",
-                "urls"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"longUrl\": \"not-a-valid-url\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Invalid longUrl returns 400', function () {",
-                  "    pm.response.to.have.status(400);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create with an already-expired expiresAt",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/api/v2/urls",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "api",
-                "v2",
-                "urls"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"longUrl\": \"https://example.com/expired\",\n  \"expiresAt\": \"2020-01-01T00:00:00Z\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Create still returns 201 (expiry is enforced on redirect, not create)', function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "const body = pm.response.json();",
-                  "if (body.shortCode) {",
-                  "    pm.collectionVariables.set('expiredShortCode', body.shortCode);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "Redirect on an expired link is rejected (410)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{v2Url}}/{{expiredShortCode}}",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "{{expiredShortCode}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Expired link returns 410', function () {",
-                  "    pm.response.to.have.status(410);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        },
-        {
-          "name": "Create link with device-classified redirect rules",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/api/v2/urls",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "api",
-                "v2",
-                "urls"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"longUrl\": \"https://example.com/default-landing\",\n  \"redirectRules\": [\n    {\n      \"deviceType\": \"MOBILE\",\n      \"targetUrl\": \"https://example.com/mobile-landing\"\n    },\n    {\n      \"deviceType\": \"DESKTOP\",\n      \"targetUrl\": \"https://example.com/desktop-landing\"\n    }\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Create with redirect rules returns 201', function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "const body = pm.response.json();",
-                  "if (body.shortCode) {",
-                  "    pm.collectionVariables.set('deviceShortCode', body.shortCode);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "Redirect with a mobile User-Agent",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "User-Agent",
-                "value": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/{{deviceShortCode}}",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "{{deviceShortCode}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Mobile User-Agent gets the mobile target', function () {",
-                  "    pm.response.to.have.status(302);",
-                  "    pm.expect(pm.response.headers.get('Location')).to.eql('https://example.com/mobile-landing');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        },
-        {
-          "name": "Redirect with a desktop User-Agent",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "User-Agent",
-                "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/{{deviceShortCode}}",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "{{deviceShortCode}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Desktop User-Agent gets the desktop target', function () {",
-                  "    pm.response.to.have.status(302);",
-                  "    pm.expect(pm.response.headers.get('Location')).to.eql('https://example.com/desktop-landing');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        },
-        {
-          "name": "Redirect on a code that never existed (404)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{v2Url}}/this-code-does-not-exist",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "this-code-does-not-exist"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Unknown code returns 404', function () {",
-                  "    pm.response.to.have.status(404);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        },
-        {
-          "name": "Submit async bulk job",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/api/v2/urls/bulk",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "api",
-                "v2",
-                "urls",
-                "bulk"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"urls\": [\n    {\n      \"longUrl\": \"https://example.com/bulk-item-1\"\n    },\n    {\n      \"longUrl\": \"https://example.com/bulk-item-2\"\n    },\n    {\n      \"longUrl\": \"https://example.com/bulk-item-3\"\n    }\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Bulk submit returns 202', function () {",
-                  "    pm.response.to.have.status(202);",
-                  "});",
-                  "const body = pm.response.json();",
-                  "pm.test('Response has a jobId', function () {",
-                  "    pm.expect(body).to.have.property('jobId');",
-                  "});",
-                  "if (body.jobId) {",
-                  "    pm.collectionVariables.set('bulkJobId', body.jobId);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "Poll bulk job status",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/api/v2/urls/bulk/{{bulkJobId}}",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "api",
-                "v2",
-                "urls",
-                "bulk",
-                "{{bulkJobId}}"
-              ]
-            },
-            "description": "The bulk job is processed asynchronously by analytics-worker/bulk-processor via RabbitMQ. Re-run this request (Send, not Runner) a few times a couple of seconds apart if status is still PENDING/PROCESSING - Postman does not poll on its own."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Poll returns 200', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "const body = pm.response.json();",
-                  "console.log('Bulk job status:', body.status);",
-                  "pm.test('Response has a status field', function () {",
-                  "    pm.expect(body).to.have.property('status');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "2. Brownfield - V1 baseline, then V2 cutover",
-      "description": "Tests V1 first as the pre-existing baseline system, then represents 'a commit that activates V2' by creating the same link on V2, and verifies how the Gateway resolves the new V2 code before and after it has been read directly against V2 at least once. Maps to the Day 2 scenario documented in ARCHITECTURE.md (V1-only baseline, then V2 cutover) and reproduces the open cache-as-index defect live, without hard-failing the run. Run '0. Auth' first.",
-      "item": [
-        {
-          "name": "Create short link (V1 - the pre-existing system)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{v1Url}}/api/v1/urls",
-              "host": [
-                "{{v1Url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "urls"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"longUrl\": \"https://www.anthropic.com/news\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "description": "V1 requires no token - it is the pre-existing 'legacy' system, running before any V2 cutover. This is the Day 1 / brownfield baseline."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('V1 create returns 201', function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "const body = pm.response.json();",
-                  "pm.test('Response has a shortCode', function () {",
-                  "    pm.expect(body).to.have.property('shortCode');",
-                  "});",
-                  "if (body.shortCode) {",
-                  "    pm.collectionVariables.set('bfV1ShortCode', body.shortCode);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "Redirect via V1 directly (301)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{v1Url}}/{{bfV1ShortCode}}",
-              "host": [
-                "{{v1Url}}"
-              ],
-              "path": [
-                "{{bfV1ShortCode}}"
-              ]
-            },
-            "description": "V1 uses 301 (permanent) redirects, unlike V2's 302 - this is a deliberate, documented V1/V2 contract difference."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('V1 redirect returns 301 MOVED_PERMANENTLY', function () {",
-                  "    pm.response.to.have.status(301);",
-                  "});",
-                  "pm.test('Location header matches the original longUrl', function () {",
-                  "    pm.expect(pm.response.headers.get('Location')).to.eql('https://www.anthropic.com/news');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        },
-        {
-          "name": "Redirect via Gateway (routes to V1, as V2 has nothing yet)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{gatewayUrl}}/{{bfV1ShortCode}}",
-              "host": [
-                "{{gatewayUrl}}"
-              ],
-              "path": [
-                "{{bfV1ShortCode}}"
-              ]
-            },
-            "description": "Confirms the Gateway's V1 fallback path works for a code V2 has never seen - this is the Day 1 baseline behavior, before any V2 cutover."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Gateway falls through to V1 and returns 301', function () {",
-                  "    pm.response.to.have.status(301);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        },
-        {
-          "name": "'Cutover commit': create the same link on V2",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{accessToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{v2Url}}/api/v2/urls",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "api",
-                "v2",
-                "urls"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"longUrl\": \"https://www.anthropic.com/news\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "description": "Represents 'a commit that activates V2': from this point on, the system has a V2-side entry that did not exist when the Gateway request above was made. This models the documented Day 2 scenario in ARCHITECTURE.md (V1-only baseline, then V2 cutover)."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('V2 create returns 201', function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "const body = pm.response.json();",
-                  "if (body.shortCode) {",
-                  "    pm.collectionVariables.set('bfV2ShortCode', body.shortCode);",
-                  "}",
-                  "console.log('V2 cutover: new code ' + body.shortCode + ' now exists on V2, alongside the V1 baseline created above.');"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "Gateway routing for the new V2 code BEFORE it is read directly",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{gatewayUrl}}/{{bfV2ShortCode}}",
-              "host": [
-                "{{gatewayUrl}}"
-              ],
-              "path": [
-                "{{bfV2ShortCode}}"
-              ]
-            },
-            "description": "SOFT ASSERTION BY DESIGN: this step documents the currently open cache-as-index defect rather than hard-failing on it, so this collection stays valid both before and after the Option B Gateway fix (try V2, fall back to V1 on 404) lands. A 404 here is expected today; after the fix, expect 302."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Gateway responds with 302 (already cached) or 404 (not yet cached)', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([302, 404]);",
-                  "});",
-                  "if (pm.response.code === 404) {",
-                  "    console.warn('EXPECTED with the current implementation: the Gateway uses ',",
-                  "        'ShortLinkCache (a read-through cache, TTL 300s) as if it were a durable ',",
-                  "        'ownership index. A code that has never been read directly against V2 is ',",
-                  "        'not yet in Redis, so the Gateway falls back to V1 and 404s there too. See ',",
-                  "        '\"Known defect\" in infra/k8s/README.md and ARCHITECTURE.md section 13.');",
-                  "} else {",
-                  "    console.log('Gateway already resolved the V2 code on first try (cache was warm).');",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        },
-        {
-          "name": "Read the new V2 code directly (warms the Gateway's cache)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{v2Url}}/{{bfV2ShortCode}}",
-              "host": [
-                "{{v2Url}}"
-              ],
-              "path": [
-                "{{bfV2ShortCode}}"
-              ]
-            },
-            "description": "A direct read against V2 populates ShortLinkCache in Redis, which the Gateway (today) depends on as its de-facto routing index."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Direct V2 redirect returns 302', function () {",
-                  "    pm.response.to.have.status(302);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        },
-        {
-          "name": "Gateway routing for the same V2 code AFTER the direct read",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{gatewayUrl}}/{{bfV2ShortCode}}",
-              "host": [
-                "{{gatewayUrl}}"
-              ],
-              "path": [
-                "{{bfV2ShortCode}}"
-              ]
-            },
-            "description": "This request is expected to pass both before and after the Option B fix: once the cache is warm, today's implementation already routes correctly. The defect is specifically about the FIRST request after a V2 cutover, demonstrated by the two requests above."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Gateway now resolves the V2 code and returns 302', function () {",
-                  "    pm.response.to.have.status(302);",
-                  "});",
-                  "pm.test('Location header matches the original longUrl', function () {",
-                  "    pm.expect(pm.response.headers.get('Location')).to.eql('https://www.anthropic.com/news');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          }
-        }
-      ]
-    }
-  ],
-  "variable": [
-    {
-      "key": "accessToken",
-      "value": ""
-    },
-    {
-      "key": "gfShortCode",
-      "value": ""
-    },
-    {
-      "key": "customAliasValue",
-      "value": "claude-docs"
-    },
-    {
-      "key": "expiredShortCode",
-      "value": ""
-    },
-    {
-      "key": "deviceShortCode",
-      "value": ""
-    },
-    {
-      "key": "bulkJobId",
-      "value": ""
-    },
-    {
-      "key": "bfV1ShortCode",
-      "value": ""
-    },
-    {
-      "key": "bfV2ShortCode",
-      "value": ""
-    }
-  ]
+	"info": {
+		"_postman_id": "b8e2a4b0-1a2b-4c3d-9e5f-url-shortener-01",
+		"name": "URL Shortener - Enterprise (Greenfield & Brownfield)",
+		"description": "Reviewer-facing Postman collection for the url-shortener take-home exercise. Three independent flows:\n\n- **Greenfield**: exercises V2 directly as if it were the only system that ever existed (no V1 framing) - the shape of the API surface a true greenfield build would present.\n- **Brownfield**: exercises V1 first as the pre-existing baseline, then represents a 'V2 cutover' commit and shows the Gateway routing a brand-new V2 code correctly on the very first try, with no prior direct read against V2 required (see AI_USAGE_LOG.md and ARCHITECTURE.md section 13 for the cache-as-index defect this fixed).\n- **Ambiguous**: exercises Scenario C's underspecified \"smart, private links\" requirement (ARCHITECTURE.md section 6) - device-classified redirects and link expiration; see README.md for how to verify the IP-anonymization half of that scenario, which has no HTTP endpoint to assert against here.\n\nRun '0. Auth' once first to obtain a token; every other request reuses it via the {{accessToken}} collection variable. Import the companion environment file (url-shortener-enterprise.postman_environment.json) and select it before running - it covers both Option A (docker-compose + mvn spring-boot:run) and Option B (k3d) since both expose the same localhost ports (see README.md \"For reviewers: setup and verification\").",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "0. Auth",
+			"description": "Obtains a Keycloak access token for the 'urlshortener' realm using the Resource Owner Password Credentials grant, and stores it as a collection variable ({{accessToken}}) so every V2 request below can reuse it. Run this request first.",
+			"item": [
+				{
+					"name": "Get access token (Resource Owner Password grant)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded"
+							}
+						],
+						"url": {
+							"raw": "{{keycloakUrl}}/realms/urlshortener/protocol/openid-connect/token",
+							"host": [
+								"{{keycloakUrl}}"
+							],
+							"path": [
+								"realms",
+								"urlshortener",
+								"protocol",
+								"openid-connect",
+								"token"
+							]
+						},
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "grant_type",
+									"value": "password"
+								},
+								{
+									"key": "client_id",
+									"value": "{{clientId}}"
+								},
+								{
+									"key": "client_secret",
+									"value": "{{clientSecret}}"
+								},
+								{
+									"key": "username",
+									"value": "{{keycloakUsername}}"
+								},
+								{
+									"key": "password",
+									"value": "{{keycloakPassword}}"
+								}
+							]
+						},
+						"description": "Uses the 'urlshortener-client' confidential client against the realm imported at cluster/stack startup (infra/k8s/13-keycloak.yaml or the docker-compose Keycloak service). Set keycloakUsername/keycloakPassword in the environment to a real user of that realm before running."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Token endpoint returns 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('Response contains an access_token', function () {",
+									"    pm.expect(body).to.have.property('access_token');",
+									"});",
+									"",
+									"if (body.access_token) {",
+									"    pm.collectionVariables.set('accessToken', body.access_token);",
+									"}",
+									"",
+									"// Decode the JWT payload (no signature check - this is a reviewer",
+									"// convenience, not a security check) to surface the issuer being",
+									"// used, which matters for the Keycloak KC_HOSTNAME fix documented",
+									"// in infra/k8s/README.md and ARCHITECTURE.md.",
+									"if (body.access_token) {",
+									"    const payloadB64 = body.access_token.split('.')[1];",
+									"    const decoded = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));",
+									"    console.log('Token issuer (iss):', decoded.iss);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "1. Greenfield - V2 as the primary system",
+			"description": "Exercises V2 directly, treating it as the only system in existence - no V1 fallback framing, matching this project's own stance that V1 is a didactic 'legacy' simulation and a real greenfield build would only ever have V2. Covers create/redirect, custom alias, duplicate alias (409), reserved slug (400), invalid input (400), expiration (410), device-classified redirect rules, and the async bulk submit+poll flow. Run '0. Auth' first.",
+			"item": [
+				{
+					"name": "Create short link (V2)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/api/v2/urls",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"api",
+								"v2",
+								"urls"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"longUrl\": \"https://www.anthropic.com/claude-code\",\n  \"expiresAt\": null\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"description": "Baseline V2 create, exercised as if V2 were the only system (no V1 fallback framing)."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Create returns 201', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('Response has a shortCode', function () {",
+									"    pm.expect(body).to.have.property('shortCode');",
+									"});",
+									"",
+									"if (body.shortCode) {",
+									"    pm.collectionVariables.set('gfShortCode', body.shortCode);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Redirect via V2 directly (302)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{v2Url}}/{{gfShortCode}}",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"{{gfShortCode}}"
+							]
+						},
+						"description": "V2's redirect endpoint is public (no token) and returns 302 FOUND with a Location header."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Redirect returns 302', function () {",
+									"    pm.response.to.have.status(302);",
+									"});",
+									"pm.test('Location header points at the original longUrl', function () {",
+									"    pm.expect(pm.response.headers.get('Location')).to.eql('https://www.anthropic.com/claude-code');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"followRedirects": false
+					}
+				},
+				{
+					"name": "Redirect via Gateway (routes to V2)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{gatewayUrl}}/{{gfShortCode}}",
+							"host": [
+								"{{gatewayUrl}}"
+							],
+							"path": [
+								"{{gfShortCode}}"
+							]
+						},
+						"description": "DynamicShortCodeRoutingFilter asks V2 directly whether the code exists (no Redis cache in the middle any more), so this resolves correctly on the first try -- no need to run 'Redirect via V2 directly' first to warm anything."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Gateway resolves the V2 code', function () {",
+									"    pm.response.to.have.status(302);",
+									"});",
+									"pm.test('Location header matches the original longUrl', function () {",
+									"    pm.expect(pm.response.headers.get('Location')).to.eql('https://www.anthropic.com/claude-code');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"followRedirects": false
+					}
+				},
+				{
+					"name": "Create with custom alias",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/api/v2/urls",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"api",
+								"v2",
+								"urls"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"longUrl\": \"https://docs.claude.com\",\n  \"customAlias\": \"{{customAliasValue}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Create with custom alias returns 201', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.test('shortCode matches the requested alias', function () {",
+									"    pm.expect(body.shortCode).to.eql(pm.environment.get('customAliasValue') || pm.collectionVariables.get('customAliasValue'));",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Duplicate alias is rejected (409)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/api/v2/urls",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"api",
+								"v2",
+								"urls"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"longUrl\": \"https://example.com/another-target\",\n  \"customAlias\": \"{{customAliasValue}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"description": "Run after 'Create with custom alias' - reuses the same alias to trigger DuplicateAliasException."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Reusing an alias returns 409', function () {",
+									"    pm.response.to.have.status(409);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Reserved slug is rejected (400)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/api/v2/urls",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"api",
+								"v2",
+								"urls"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"longUrl\": \"https://example.com/reserved-test\",\n  \"customAlias\": \"api\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"description": "'api' collides with V2's own routing namespace and is on the reserved-slug list."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Reserved slug returns 400', function () {",
+									"    pm.response.to.have.status(400);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Invalid longUrl is rejected (400)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/api/v2/urls",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"api",
+								"v2",
+								"urls"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"longUrl\": \"not-a-valid-url\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Invalid longUrl returns 400', function () {",
+									"    pm.response.to.have.status(400);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Redirect on a code that never existed (404)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{v2Url}}/this-code-does-not-exist",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"this-code-does-not-exist"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Unknown code returns 404', function () {",
+									"    pm.response.to.have.status(404);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"followRedirects": false
+					}
+				},
+				{
+					"name": "Submit async bulk job",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/api/v2/urls/bulk",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"api",
+								"v2",
+								"urls",
+								"bulk"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"urls\": [\n    {\n      \"longUrl\": \"https://example.com/bulk-item-1\"\n    },\n    {\n      \"longUrl\": \"https://example.com/bulk-item-2\"\n    },\n    {\n      \"longUrl\": \"https://example.com/bulk-item-3\"\n    }\n  ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Bulk submit returns 202', function () {",
+									"    pm.response.to.have.status(202);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.test('Response has a jobId', function () {",
+									"    pm.expect(body).to.have.property('jobId');",
+									"});",
+									"if (body.jobId) {",
+									"    pm.collectionVariables.set('bulkJobId', body.jobId);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Poll bulk job status",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/api/v2/urls/bulk/{{bulkJobId}}",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"api",
+								"v2",
+								"urls",
+								"bulk",
+								"{{bulkJobId}}"
+							]
+						},
+						"description": "The bulk job is processed asynchronously by analytics-worker/bulk-processor via RabbitMQ. Re-run this request (Send, not Runner) a few times a couple of seconds apart if status is still PENDING/PROCESSING - Postman does not poll on its own."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Poll returns 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"const body = pm.response.json();",
+									"console.log('Bulk job status:', body.status);",
+									"pm.test('Response has a status field', function () {",
+									"    pm.expect(body).to.have.property('status');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "2. Brownfield - V1 baseline, then V2 cutover",
+			"description": "Tests V1 first as the pre-existing baseline system, then represents 'a commit that activates V2' by creating the same link on V2, and verifies the Gateway resolves the new V2 code correctly on the very first try -- and still correctly after a direct read against V2, too. Maps to the Day 2 scenario documented in ARCHITECTURE.md (V1-only baseline, then V2 cutover). Used to reproduce a cache-as-index defect here (see AI_USAGE_LOG.md and ARCHITECTURE.md section 13); DynamicShortCodeRoutingFilter no longer depends on a Redis cache at all, so this folder now asserts the fixed behavior rather than tolerating the old one. Run '0. Auth' first.",
+			"item": [
+				{
+					"name": "Create short link (V1 - the pre-existing system)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{gatewayUrl}}/api/v1/urls",
+							"host": [
+								"{{gatewayUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"urls"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"longUrl\": \"https://www.anthropic.com/news\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"description": "Goes through the Gateway, not straight to V1 - k3d's k3d-config.yaml only maps host ports 8081/8082/8084 (Keycloak/Gateway/V2), so a direct V1 port is not guaranteed to exist under Option B. The Gateway forwards /api/v1/** to V1_LEGACY_MONOLITH_URL unconditionally (no cache/index dependency, unlike the V1/V2 redirect dispatch below), so this works identically under docker-compose (Option A) and k3d (Option B). Confirmed against a live k3d cluster: POST {{gatewayUrl}}/api/v1/urls returns 201 with a real shortCode."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('V1 create returns 201', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"pm.test('Response has a shortCode', function () {",
+									"    pm.expect(body).to.have.property('shortCode');",
+									"});",
+									"if (body.shortCode) {",
+									"    pm.collectionVariables.set('bfV1ShortCode', body.shortCode);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Redirect via Gateway (routes to V1, as V2 has nothing yet)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{gatewayUrl}}/{{bfV1ShortCode}}",
+							"host": [
+								"{{gatewayUrl}}"
+							],
+							"path": [
+								"{{bfV1ShortCode}}"
+							]
+						},
+						"description": "Confirms the Gateway's V1 fallback path works for a code V2 has never seen - this is the Day 1 baseline behavior, before any V2 cutover."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Gateway falls through to V1 and returns 301', function () {",
+									"    pm.response.to.have.status(301);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"followRedirects": false
+					}
+				},
+				{
+					"name": "'Cutover commit': create the same link on V2",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/api/v2/urls",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"api",
+								"v2",
+								"urls"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"longUrl\": \"https://www.anthropic.com/news\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"description": "Represents 'a commit that activates V2': from this point on, the system has a V2-side entry that did not exist when the Gateway request above was made. This models the documented Day 2 scenario in ARCHITECTURE.md (V1-only baseline, then V2 cutover)."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('V2 create returns 201', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"if (body.shortCode) {",
+									"    pm.collectionVariables.set('bfV2ShortCode', body.shortCode);",
+									"}",
+									"console.log('V2 cutover: new code ' + body.shortCode + ' now exists on V2, alongside the V1 baseline created above.');"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Gateway routing for the new V2 code BEFORE it is read directly (302)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{gatewayUrl}}/{{bfV2ShortCode}}",
+							"host": [
+								"{{gatewayUrl}}"
+							],
+							"path": [
+								"{{bfV2ShortCode}}"
+							]
+						},
+						"description": "Fixed: DynamicShortCodeRoutingFilter no longer decides V1-vs-V2 from a Redis cache that was only ever warmed by a direct read (see AI_USAGE_LOG.md and ARCHITECTURE.md section 13 for the defect this replaced). It now asks V2 directly (a live GET probe) whether the code exists, so this request succeeds on the very first try -- no prior direct read against V2 required, unlike before this fix."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Gateway resolves the V2 code via the Gateway on the first try (302)', function () {",
+									"    pm.response.to.have.status(302);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"followRedirects": false
+					}
+				},
+				{
+					"name": "Read the new V2 code directly",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{v2Url}}/{{bfV2ShortCode}}",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"{{bfV2ShortCode}}"
+							]
+						},
+						"description": "A direct read against V2 (bypassing the Gateway). Kept as its own step so the next request proves Gateway routing is still correct for a code that has already been read directly, not just on the very first request -- DynamicShortCodeRoutingFilter no longer depends on this read having happened first (see AI_USAGE_LOG.md and ARCHITECTURE.md section 13)."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Direct V2 redirect returns 302', function () {",
+									"    pm.response.to.have.status(302);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"followRedirects": false
+					}
+				},
+				{
+					"name": "Gateway routing for the same V2 code AFTER the direct read (302)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{gatewayUrl}}/{{bfV2ShortCode}}",
+							"host": [
+								"{{gatewayUrl}}"
+							],
+							"path": [
+								"{{bfV2ShortCode}}"
+							]
+						},
+						"description": "Confirms the Gateway still routes this code to V2 correctly after a direct read, same as before it -- there is no cache-warming step left for this to depend on any more."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Gateway now resolves the V2 code and returns 302', function () {",
+									"    pm.response.to.have.status(302);",
+									"});",
+									"pm.test('Location header matches the original longUrl', function () {",
+									"    pm.expect(pm.response.headers.get('Location')).to.eql('https://www.anthropic.com/news');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"followRedirects": false
+					}
+				}
+			]
+		},
+		{
+			"name": "3. Ambiguous - smart, private links",
+			"description": "Scenario C from ARCHITECTURE.md \u00a76: the exercise brief's underspecified \"smart, private links\" requirement. \"Smart\" -> device-type-based conditional redirect (mobile vs. desktop). \"Expire properly\" -> an expires_at field returning 410 Gone once past due. \"Respect privacy\" -> the client IP is anonymized (last octet zeroed for IPv4) before a click event is persisted; there is no HTTP endpoint that returns this value, so it cannot be asserted by a request in this collection -- see the README section \"Verifying IP anonymization (Scenario C privacy requirement)\" for the SQL query that confirms it directly against click_events.",
+			"item": [
+				{
+					"name": "Create with an already-expired expiresAt (201)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/api/v2/urls",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"api",
+								"v2",
+								"urls"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"longUrl\": \"https://example.com/expired\",\n  \"expiresAt\": \"2020-01-01T00:00:00Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Create still returns 201 (expiry is enforced on redirect, not create)', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"if (body.shortCode) {",
+									"    pm.collectionVariables.set('expiredShortCode', body.shortCode);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Redirect on an expired link is rejected (410)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{v2Url}}/{{expiredShortCode}}",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"{{expiredShortCode}}"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Expired link returns 410', function () {",
+									"    pm.response.to.have.status(410);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"followRedirects": false
+					}
+				},
+				{
+					"name": "Create link with device-classified redirect rules (201)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/api/v2/urls",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"api",
+								"v2",
+								"urls"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"longUrl\": \"https://example.com/default-landing\",\n  \"redirectRules\": [\n    {\n      \"deviceType\": \"MOBILE\",\n      \"targetUrl\": \"https://example.com/mobile-landing\"\n    },\n    {\n      \"deviceType\": \"DESKTOP\",\n      \"targetUrl\": \"https://example.com/desktop-landing\"\n    }\n  ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Create with redirect rules returns 201', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"const body = pm.response.json();",
+									"if (body.shortCode) {",
+									"    pm.collectionVariables.set('deviceShortCode', body.shortCode);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Redirect with a mobile User-Agent (302)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "User-Agent",
+								"value": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/{{deviceShortCode}}",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"{{deviceShortCode}}"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Mobile User-Agent gets the mobile target', function () {",
+									"    pm.response.to.have.status(302);",
+									"    pm.expect(pm.response.headers.get('Location')).to.eql('https://example.com/mobile-landing');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"followRedirects": false
+					}
+				},
+				{
+					"name": "Redirect with a desktop User-Agent (302)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "User-Agent",
+								"value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+							}
+						],
+						"url": {
+							"raw": "{{v2Url}}/{{deviceShortCode}}",
+							"host": [
+								"{{v2Url}}"
+							],
+							"path": [
+								"{{deviceShortCode}}"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Desktop User-Agent gets the desktop target', function () {",
+									"    pm.response.to.have.status(302);",
+									"    pm.expect(pm.response.headers.get('Location')).to.eql('https://example.com/desktop-landing');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"followRedirects": false
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "accessToken",
+			"value": ""
+		},
+		{
+			"key": "gfShortCode",
+			"value": ""
+		},
+		{
+			"key": "customAliasValue",
+			"value": "claude-docs"
+		},
+		{
+			"key": "expiredShortCode",
+			"value": ""
+		},
+		{
+			"key": "deviceShortCode",
+			"value": ""
+		},
+		{
+			"key": "bulkJobId",
+			"value": ""
+		},
+		{
+			"key": "bfV1ShortCode",
+			"value": ""
+		},
+		{
+			"key": "bfV2ShortCode",
+			"value": ""
+		}
+	]
 }

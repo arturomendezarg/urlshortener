@@ -12,13 +12,24 @@
 # as deploy-to-kind.sh: these manifests are plain Deployment/Service/NodePort and portable as-is.
 #
 # Idempotent: safe to re-run after a code change. It reuses the existing k3d cluster if one named
-# "url-shortener" is already running AND has a Ready node (never a destructive recreate -- on a
-# half-created cluster it stops and says how to inspect it), rebuilds/reimports all five images
+# "url-shortener" is already running AND has a Ready node, rebuilds/reimports all five images
 # unconditionally (fast: mvn's incremental compilation and Docker's layer cache both still
 # apply), and `kubectl apply` on unchanged manifests is a no-op. Deployments are rollout-restarted
 # after re-applying so a new image with the *same* tag is actually picked up -- `imagePullPolicy:
 # Never` means the kubelet trusts whatever image already sits on the node under that tag and will
 # NOT notice a same-tag image changed underneath it on its own.
+#
+# Self-healing for the most common failure seen running this in a Codespace: the Codespace's own
+# Docker daemon gets restarted (idle timeout, VM resume) out from under a running cluster, leaving
+# a k3d cluster that "exists" but whose node container simply isn't running any more -- not
+# corrupted, just stopped. On that case this script tries `k3d cluster start` first (non-
+# destructive: the same node, same data, just started back up) before ever considering a
+# destructive recreate, and only deletes-and-recreates the cluster if that restart doesn't bring a
+# Ready node back within a short wait. Either way, it prints the diagnostic commands (docker logs
+# on the node container) BEFORE acting, so the real cause is never silently discarded even when
+# the script goes on to recover on its own. k3d itself is auto-installed if missing, since it is
+# NOT one of the tools .devcontainer/setup.sh installs (that script installs kind, not k3d -- see
+# the block comment above about why this is a second script instead of a --runtime flag).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,34 +46,72 @@ IMAGE_TAG="kind"
 
 echo "==> Repo root: ${REPO_ROOT}"
 
-for tool in k3d docker kubectl; do
+for tool in docker kubectl; do
   if ! command -v "${tool}" >/dev/null 2>&1; then
     echo "ERROR: '${tool}' is not on the PATH." >&2
-    echo "       k3d is NOT installed by .devcontainer/setup.sh (which installs kind); install it" >&2
-    echo "       with:  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash" >&2
+    echo "       Both are installed by .devcontainer/setup.sh -- if this is a fresh shell outside" >&2
+    echo "       that devcontainer, install them yourself before re-running this script." >&2
     exit 1
   fi
 done
 
+if ! command -v k3d >/dev/null 2>&1; then
+  # k3d is deliberately NOT one of the tools .devcontainer/setup.sh installs (it installs kind --
+  # see the block comment above), so a fresh clone/Codespace/reviewer checkout genuinely won't
+  # have it yet. Install it here instead of just printing the command and exiting: the whole point
+  # of this branch existing is to make "clone the repo and run this script" work unattended.
+  echo "==> 'k3d' not found on PATH -- installing it (see https://k3d.io/#installation)..."
+  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+  if ! command -v k3d >/dev/null 2>&1; then
+    echo "ERROR: the k3d install script ran but 'k3d' is still not on the PATH." >&2
+    echo "       It may have installed to a directory outside your current PATH -- open a new" >&2
+    echo "       shell and retry, or see https://k3d.io/#installation for a manual install." >&2
+    exit 1
+  fi
+fi
+
+node_is_ready() {
+  kubectl --context "${CONTEXT}" get nodes \
+      -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null \
+      | grep -q True
+}
+
+# Polls up to (attempts * 3)s for the node to report Ready, instead of a fixed sleep -- most
+# recoveries are much faster than the worst case this has to tolerate.
+wait_for_ready_node() {
+  local attempts="${1}"
+  for ((i = 1; i <= attempts; i++)); do
+    if node_is_ready; then
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
+
 echo "==> Ensuring k3d cluster '${CLUSTER_NAME}' exists and is usable..."
 if k3d cluster list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "${CLUSTER_NAME}"; then
   # "Exists" is not the same as "usable" -- the same distinction deploy-to-kind.sh documents. A
-  # failed creation can leave a cluster listed whose node never became Ready; going on to build
-  # five images and apply every manifest against it fails minutes later with a far more confusing
-  # error than the real one. So verify readiness, not just existence.
-  if kubectl --context "${CONTEXT}" get nodes \
-      -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null \
-      | grep -q True; then
+  # failed creation, or (far more commonly in a Codespace) the Docker daemon restarting out from
+  # under an otherwise-fine cluster, can leave a cluster listed whose node isn't Ready; going on to
+  # build five images and apply every manifest against it fails minutes later with a far more
+  # confusing error than the real one. So verify readiness, not just existence.
+  if node_is_ready; then
     echo "    Already running with a Ready node, reusing it."
   else
-    echo "ERROR: a k3d cluster named '${CLUSTER_NAME}' exists but has no Ready node." >&2
-    echo "       It was most likely left behind by a failed creation." >&2
-    echo "       This script deliberately does NOT delete it for you: that is destructive, and a" >&2
-    echo "       broken node is usually the only place the real cause is still readable." >&2
-    echo "       Inspect:  kubectl --context ${CONTEXT} get nodes" >&2
-    echo "                 docker logs k3d-${CLUSTER_NAME}-server-0 --tail 100" >&2
-    echo "       Recreate: k3d cluster delete ${CLUSTER_NAME} && ${BASH_SOURCE[0]}" >&2
-    exit 1
+    echo "    Cluster '${CLUSTER_NAME}' exists but has no Ready node." >&2
+    echo "    Real cause, if this repeats, is usually visible in:" >&2
+    echo "        docker logs k3d-${CLUSTER_NAME}-server-0 --tail 100" >&2
+    echo "==> Attempting a non-destructive recovery: 'k3d cluster start ${CLUSTER_NAME}'..." >&2
+    k3d cluster start "${CLUSTER_NAME}" || true
+    if wait_for_ready_node 20; then
+      echo "    Recovered: the existing node is Ready again, no data lost."
+    else
+      echo "    Node still not Ready 60s after 'k3d cluster start'." >&2
+      echo "==> Falling back to a destructive recreate (delete + create from scratch)..." >&2
+      k3d cluster delete "${CLUSTER_NAME}"
+      k3d cluster create --config "${SCRIPT_DIR}/k3d-config.yaml"
+    fi
   fi
 else
   # Fails fast and clearly if docker-compose is still up: both claim host ports 8081/8082/8084 by

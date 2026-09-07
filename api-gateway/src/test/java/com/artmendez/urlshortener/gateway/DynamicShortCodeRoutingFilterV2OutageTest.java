@@ -9,9 +9,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -20,22 +17,19 @@ import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Mirrors {@code ShortLinkRedisOutageIntegrationTest} and {@code RateLimiterRedisOutageTest}'s
- * chaos tests (v2-shortener-service): stop Redis mid-test and prove
- * {@link DynamicShortCodeRoutingFilter} fails safe to V1 -- its documented fallback (see that
- * class's Javadoc) -- rather than the redirect breaking outright.
+ * Proves {@link DynamicShortCodeRoutingFilter} fails safe to V1 when V2 itself cannot be reached
+ * to answer the existence check -- its documented fallback (see that class's Javadoc) -- rather
+ * than the redirect breaking outright.
  *
- * <p>Kept as its own test class, not a method inside {@link GatewayRoutingIntegrationTest}, for
- * the same reason those two v2-shortener-service tests are split from their siblings: stopping
- * Redis here must not affect any other test's shared container.
+ * <p>Replaces this project's former Redis-outage test of the same filter: now that the filter
+ * asks V2 directly instead of consulting a separate Redis index, "V2 is unreachable" is the one
+ * failure mode that matters here -- there is no longer a second, independent piece of shared
+ * infrastructure to fail on its own. Unlike the old test, this one needs no container to stop
+ * mid-test: V2's base URL simply points at a port nothing is listening on for the whole test,
+ * so every existence check against it fails the same way a real outage would.
  */
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class DynamicShortCodeRoutingFilterRedisOutageTest {
-
-    @Container
-    static final GenericContainer<?> REDIS =
-            new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
+class DynamicShortCodeRoutingFilterV2OutageTest {
 
     private static HttpServer fakeV1;
 
@@ -61,20 +55,17 @@ class DynamicShortCodeRoutingFilterRedisOutageTest {
     static void configureProperties(DynamicPropertyRegistry registry) {
         registry.add("app.v1-legacy-monolith.base-url",
                 () -> "http://localhost:" + fakeV1.getAddress().getPort());
-        // Deliberately no real V2 backend behind this URL: the whole point of this test is that
-        // an outage must never even attempt to reach V2.
+        // Nothing listens on this port at all: every existence check against it must fail
+        // (connection refused), proving the filter falls back to V1 instead of the redirect
+        // breaking outright.
         registry.add("app.v2-shortener-service.base-url", () -> "http://localhost:1");
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
     }
 
     @Autowired
     private WebTestClient webTestClient;
 
     @Test
-    void routesToLegacyMonolithWhenRedisIsUnreachable() {
-        REDIS.stop();
-
+    void routesToLegacyMonolithWhenV2IsUnreachable() {
         webTestClient.get().uri("/AnyCode")
                 .exchange()
                 .expectStatus().isOk()

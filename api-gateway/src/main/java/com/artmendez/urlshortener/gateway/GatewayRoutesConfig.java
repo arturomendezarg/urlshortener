@@ -20,8 +20,9 @@ import org.springframework.http.HttpMethod;
  *       closes.</li>
  *   <li>{@code GET /{shortCode}} (data plane, the actual redirect) -> decided per request by
  *       {@link DynamicShortCodeRoutingFilter}, not by this route's own (placeholder) URI: it
- *       checks whether the code exists in V2's Redis index and forwards to V2 if so, V1
- *       otherwise. This is what makes Strangler Fig actually work for a shortener -- the public
+ *       asks V2 directly whether the code exists there and forwards to V2 if so, V1 otherwise
+ *       (see that filter's own Javadoc for why this asks V2 directly rather than a shared
+ *       index). This is what makes Strangler Fig actually work for a shortener -- the public
  *       domain is a single, stable one, even as the backend behind any given code changes over
  *       time. The route's own {@code .uri(v1BaseUrl)} below is only
  *       {@code RouteToRequestUrlFilter}'s starting point; the filter always overrides it.</li>
