@@ -44,7 +44,7 @@ Full rationale for every decision is in `ARCHITECTURE.md` §3.4 (Key Decisions).
   traceability template for every change.
 - [`infra/k8s/`](./infra/k8s/) — Kubernetes manifests and the `kind` deployment script (see
   `infra/k8s/README.md`).
-- Postman collection — **planned, not yet created** (see "For reviewers" below for the `curl` equivalent in the meantime).
+- [`docs/url-shortener-enterprise.postman_collection.json`](./docs/url-shortener-enterprise.postman_collection.json) (with [`docs/url-shortener-enterprise.postman_environment.json`](./docs/url-shortener-enterprise.postman_environment.json)) — Postman collection covering a Greenfield flow (V2 as the primary system) and a Brownfield flow (V1 baseline, then a V2 cutover), including the live reproduction of the Gateway routing defect below.
 
 ## Risks, Trade-offs, and Validation
 
@@ -73,8 +73,9 @@ phishing/malware lists; no real GKE deployment within this exercise's timebox.
 ## For reviewers: setup and verification
 
 Full detail in `ARCHITECTURE.md` §9. This section is the condensed path to get the system
-running and exercise it yourself, with two setup options and no dependency on the Postman
-collection (see "Artifacts" above).
+running and exercise it yourself, with two setup options. You can drive it with the Postman
+collection (see "Artifacts" above) or with the `curl` sequence below — both exercise the
+same requests.
 
 ### 1. Open the Codespace
 
@@ -117,8 +118,8 @@ below work unchanged regardless of which one you ran.
 
 ### 3. Exercise it
 
-No Postman collection exists yet (see "Artifacts"), so this is the reviewer-facing equivalent —
-the same sequence run against the live k3d deployment, transcript in
+This is the `curl` equivalent of the Postman collection (see "Artifacts") for a terminal-only
+pass — the same sequence run against the live k3d deployment, transcript in
 [`infra/k8s/README.md`](./infra/k8s/README.md#smoke-test):
 
 ```bash
