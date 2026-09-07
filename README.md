@@ -181,6 +181,11 @@ Everything above assumes `localhost` resolves to the Codespace itself — true i
 run the Postman *desktop* app on your own computer, `localhost` in the environment's URLs
 resolves to your machine, not the Codespace, and every request fails with `ECONNREFUSED`. Fix:
 
+Import both files directly into that desktop app first if you haven't already (same links as
+"Artifacts" above):
+[collection](https://raw.githubusercontent.com/arturomendezarg/urlshortener/main/docs/url-shortener-enterprise.postman_collection.json) ·
+[environment](https://raw.githubusercontent.com/arturomendezarg/urlshortener/main/docs/url-shortener-enterprise.postman_environment.json).
+
 1. Open the **PORTS** tab in the Codespace (bottom panel).
 2. For each of `8081` (Keycloak), `8082` (Gateway) and `8084` (V2), forward it if it isn't
    listed yet: click **Add Port**, type the port number, Enter.
