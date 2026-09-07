@@ -154,7 +154,7 @@ transcript, kept in git history rather than reproduced here now that it no longe
 current behavior).
 
 **Fixed** by removing the shared state instead of patching around it: the filter now sends a
-`HEAD /{shortCode}` probe directly to `v2-shortener-service` and routes to V2 on anything
+`GET /{shortCode}` probe directly to `v2-shortener-service` and routes to V2 on anything
 other than a `404` (a `410 Gone` for an expired V2 link still means the code exists in V2).
 There is no Redis dependency left in the Gateway at all, and no warm-up step for a newly
 cut-over code to wait on — see `DynamicShortCodeRoutingFilter`'s own Javadoc for the full

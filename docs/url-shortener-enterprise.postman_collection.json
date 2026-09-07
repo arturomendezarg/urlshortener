@@ -726,7 +726,7 @@
 								"{{bfV2ShortCode}}"
 							]
 						},
-						"description": "Fixed: DynamicShortCodeRoutingFilter no longer decides V1-vs-V2 from a Redis cache that was only ever warmed by a direct read (see AI_USAGE_LOG.md and ARCHITECTURE.md section 13 for the defect this replaced). It now asks V2 directly (a HEAD probe) whether the code exists, so this request succeeds on the very first try -- no prior direct read against V2 required, unlike before this fix."
+						"description": "Fixed: DynamicShortCodeRoutingFilter no longer decides V1-vs-V2 from a Redis cache that was only ever warmed by a direct read (see AI_USAGE_LOG.md and ARCHITECTURE.md section 13 for the defect this replaced). It now asks V2 directly (a live GET probe) whether the code exists, so this request succeeds on the very first try -- no prior direct read against V2 required, unlike before this fix."
 					},
 					"event": [
 						{

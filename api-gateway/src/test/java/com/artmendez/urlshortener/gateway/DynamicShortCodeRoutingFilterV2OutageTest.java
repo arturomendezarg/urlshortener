@@ -37,13 +37,10 @@ class DynamicShortCodeRoutingFilterV2OutageTest {
     static void startFakeV1() throws IOException {
         fakeV1 = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         fakeV1.createContext("/", exchange -> {
-            boolean isHead = "HEAD".equalsIgnoreCase(exchange.getRequestMethod());
             String response = "V1:" + exchange.getRequestURI().getPath();
             byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(200, isHead ? -1 : bytes.length);
-            if (!isHead) {
-                exchange.getResponseBody().write(bytes);
-            }
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
             exchange.close();
         });
         fakeV1.start();

@@ -36,7 +36,7 @@ import java.time.Duration;
  * whether Redis happened to have been warmed yet by a prior direct read.
  *
  * <p>Fixed here by removing the shared state instead of patching around it: this filter now
- * asks V2 directly whether a code exists (a {@code HEAD /{shortCode}} probe against V2 itself,
+ * asks V2 directly whether a code exists (a {@code GET /{shortCode}} probe against V2 itself,
  * routing to V2 on anything other than a {@code 404} -- a {@code 410 Gone} for an expired V2
  * link still means the code exists in V2, and V2 is the one that must answer it, not V1),
  * instead of consulting an index that could fall behind V2's own database. V2's database is now
@@ -100,11 +100,18 @@ public class DynamicShortCodeRoutingFilter implements GatewayFilter, Ordered {
 
     /**
      * {@code true} unless V2 itself says {@code 404} (a {@code 410 Gone} for an expired link
-     * still counts as "exists in V2" -- V2 must be the one to answer that, not V1). A HEAD probe
-     * runs the same {@code ShortLinkController#redirect} lookup GET would (Spring dispatches
-     * HEAD to a {@code @GetMapping} handler and only suppresses the response body, which this
-     * endpoint never had anyway), without this filter having to care what the redirect target
-     * actually is -- only whether V2 recognizes the code at all.
+     * still counts as "exists in V2" -- V2 must be the one to answer that, not V1).
+     *
+     * <p>Deliberately a {@code GET}, not a {@code HEAD}: V2's own {@code SecurityConfig} only
+     * permits unauthenticated {@code GET /{shortCode}} ({@code requestMatchers(HttpMethod.GET,
+     * "/{shortCode}")}), not HEAD -- an unauthenticated HEAD falls through to
+     * {@code anyRequest().authenticated()} and gets a {@code 401}, which this method would then
+     * (correctly, given its own contract) read as "exists in V2" and route a V1-only code to V2
+     * by mistake. Real defect this class shipped with initially -- caught by running the
+     * Brownfield Postman flow for real, not by the accompanying unit tests, which fake V2 as an
+     * unauthenticated HTTP server and so never exercised V2's actual Spring Security rules; see
+     * AI_USAGE_LOG.md. Using GET costs nothing extra over HEAD here: {@code redirect} returns
+     * {@code ResponseEntity<Void>}, so neither verb ever has a response body to transfer.
      *
      * <p>Any failure to reach V2 at all -- connection refused, DNS failure, or this call
      * outrunning {@link #V2_EXISTENCE_CHECK_TIMEOUT} -- must never take the redirect down, so it
@@ -115,7 +122,7 @@ public class DynamicShortCodeRoutingFilter implements GatewayFilter, Ordered {
      * dependency (V2 itself) this decision actually rests on instead of two.
      */
     private Mono<Boolean> existsInV2(String shortCode) {
-        return v2Client.method(HttpMethod.HEAD)
+        return v2Client.method(HttpMethod.GET)
                 .uri("/{shortCode}", shortCode)
                 .exchangeToMono(response -> response.releaseBody()
                         .thenReturn(response.statusCode().value() != 404))
