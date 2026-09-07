@@ -17,10 +17,10 @@ and section 9 (Setup Instructions) for the context and this exercise's cut prior
 > ordinary Docker host, but nothing in this repo has ever seen them succeed. k3d runs k3s, which
 > never invokes `kubeadm`, which is why that whole failure class does not apply to it.
 >
-> One defect is known and still open: the Gateway consults a TTL'd cache to decide whether a
-> short code lives in V2, so a freshly created V2 link is routed to V1 and 404s until something
-> reads it directly. See "Known defect" below — closing it is a design change, tracked
-> separately.
+> A defect that used to live here — the Gateway deciding V1-vs-V2 from a TTL'd cache instead
+> of asking V2 directly, so a freshly created V2 link was routed to V1 and 404'd until
+> something read it directly — is fixed. See "Gateway routing: V1-vs-V2" below for what
+> changed.
 
 ## Requirements
 
@@ -44,6 +44,12 @@ From any directory in the repo:
 docker-compose down          # not optional -- see the port note below
 ./infra/k8s/deploy-to-k3d.sh
 ```
+
+**Budget about 10 minutes** on a Codespace's default resources: building and importing all 5
+images is the slow part (roughly 6-7 minutes the first time, faster on a re-run since Docker
+layer caching kicks in), then cluster bring-up and the 9 pods reaching `Ready` takes another
+couple of minutes. A quiet terminal during the image build/import steps is expected, not a
+hang.
 
 **Bringing the compose stack down first is not optional.** This cluster claims the same host
 ports (8081/8082/8084) that `docker-compose.yml` does, deliberately, so that "point Postman at
@@ -129,26 +135,32 @@ The Gateway routes `/api/v1/**`, `/api/v2/**` and the public `GET /{shortCode}` 
 curl examples can address it directly and the Gateway can be exercised as a cutover switch
 rather than being the only way in.
 
-## Known defect
+## Gateway routing: V1-vs-V2
 
-`DynamicShortCodeRoutingFilter` decides whether a short code lives in V2 by checking whether
-`shortlink:v2:<code>` exists in Redis. That key is not an index — it is `ShortLinkCache`'s
-read-through **cache**, written only by `ShortLinkService.resolve()` on a cache miss, with a
-300-second TTL (`app.shortlink.cache-ttl-seconds`). Creating a link writes to PostgreSQL and
-nothing else. Two consequences:
+`DynamicShortCodeRoutingFilter` used to decide whether a short code lives in V2 by checking
+whether `shortlink:v2:<code>` existed in Redis. That key was not an index — it was
+`ShortLinkCache`'s read-through **cache**, written only by `ShortLinkService.resolve()` on a
+cache miss, with a 300-second TTL (`app.shortlink.cache-ttl-seconds`). Creating a link wrote
+to PostgreSQL and nothing else, so:
 
-- A newly created V2 link is routed to V1 by the Gateway and answers `404`, until something
-  reads it directly against `v2-shortener-service`.
-- A working V2 link starts 404ing again after 300 seconds without traffic, when its cache entry
-  expires, and recovers the moment anything warms it. Intermittent and time-dependent.
+- A newly created V2 link was routed to V1 by the Gateway and answered `404`, until something
+  read it directly against `v2-shortener-service`.
+- A working V2 link started 404ing again after 300 seconds without traffic, when its cache
+  entry expired, and recovered the moment anything warmed it. Intermittent and time-dependent.
 
-Demonstrated on the running cluster: the same `GET http://localhost:8082/demoV2` answered `404`
-before the link had been read and `302` after — see the Smoke test transcript below.
+This was demonstrated on the running cluster: the same `GET http://localhost:8082/demoV2`
+answered `404` before the link had been read and `302` after (see the previous Smoke test
+transcript, kept in git history rather than reproduced here now that it no longer reflects
+current behavior).
 
-The fix is a design change, not a patch: routing needs a durable record of which system owns a
-code (or no shared state at all, with the Gateway trying V2 and falling back to V1 on a 404),
-which is a different thing from a cache of what a link resolves to. Tracked separately; see
-`AI_USAGE_LOG.md` for the full reasoning and why the filter's own tests did not catch it.
+**Fixed** by removing the shared state instead of patching around it: the filter now sends a
+`HEAD /{shortCode}` probe directly to `v2-shortener-service` and routes to V2 on anything
+other than a `404` (a `410 Gone` for an expired V2 link still means the code exists in V2).
+There is no Redis dependency left in the Gateway at all, and no warm-up step for a newly
+cut-over code to wait on — see `DynamicShortCodeRoutingFilter`'s own Javadoc for the full
+reasoning, including the accepted trade-off (an extra round trip to V2 for requests that end
+up going to V1) and `AI_USAGE_LOG.md` for why the original design chose a cache in the first
+place.
 
 ## Smoke test
 
@@ -174,12 +186,15 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8084/api/v2/ur
   -d '{"longUrl":"https://example.com/soy-v2","customAlias":"demoV2"}'
 curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" http://localhost:8084/demoV2
 
-# Which system the Gateway picks for that same code (see "Known defect")
+# Which system the Gateway picks for that same code -- expect 302 immediately, no prior
+# direct read against V2 required (see "Gateway routing: V1-vs-V2" above)
 curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" http://localhost:8082/demoV2
-kubectl -n url-shortener exec deploy/redis -- redis-cli keys 'shortlink:v2:*'
 ```
 
-Observed on the cluster this documentation was written against:
+Observed on the cluster this documentation was originally written against, before the Gateway
+routing fix described above landed (kept here as a historical record of the defect it
+demonstrates; a fresh transcript against the current code would show `302` on both of the last
+two rows instead of `404` then `302`):
 
 | Check | Result |
 | --- | --- |
@@ -192,7 +207,7 @@ Observed on the cluster this documentation was written against:
 | `GET /demoV2` through the Gateway, before that read | `404` |
 | `GET /demoV2` through the Gateway, after that read | `302 -> https://example.com/soy-v2` |
 
-The last two rows are the same request, and are the Known defect above, not a flaky test.
+The last two rows were the same request, and were the defect described above (fixed since), not a flaky test.
 
 ## Design and decisions (more detail in `AI_USAGE_LOG.md`)
 
