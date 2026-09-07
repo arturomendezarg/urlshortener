@@ -821,7 +821,7 @@
 			"description": "Scenario C from ARCHITECTURE.md \u00a76: the exercise brief's underspecified \"smart, private links\" requirement. \"Smart\" -> device-type-based conditional redirect (mobile vs. desktop). \"Expire properly\" -> an expires_at field returning 410 Gone once past due. \"Respect privacy\" -> the client IP is anonymized (last octet zeroed for IPv4) before a click event is persisted; there is no HTTP endpoint that returns this value, so it cannot be asserted by a request in this collection -- see the README section \"Verifying IP anonymization (Scenario C privacy requirement)\" for the SQL query that confirms it directly against click_events.",
 			"item": [
 				{
-					"name": "Create with an already-expired expiresAt",
+					"name": "Create with an already-expired expiresAt (201)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -906,7 +906,7 @@
 					}
 				},
 				{
-					"name": "Create link with device-classified redirect rules",
+					"name": "Create link with device-classified redirect rules (201)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -959,7 +959,7 @@
 					]
 				},
 				{
-					"name": "Redirect with a mobile User-Agent",
+					"name": "Redirect with a mobile User-Agent (302)",
 					"request": {
 						"method": "GET",
 						"header": [
@@ -997,7 +997,7 @@
 					}
 				},
 				{
-					"name": "Redirect with a desktop User-Agent",
+					"name": "Redirect with a desktop User-Agent (302)",
 					"request": {
 						"method": "GET",
 						"header": [
