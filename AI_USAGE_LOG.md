@@ -773,3 +773,54 @@ Continuous log of decisions made during AI-assisted execution (see template and 
   required the whole system standing up at once. That is the strongest argument in this
   repository for having pushed to make Kubernetes actually run instead of accepting the
   documented limitation and demonstrating with `docker-compose`.
+
+## 2026-09-07 — [Docs/Test] Postman collection for reviewer verification (Greenfield & Brownfield)
+
+- **Prompt (paraphrased):** build the Postman collection promised throughout this project's docs
+  but never committed, structured around two flows the engineer specified explicitly: Greenfield
+  exercises V2 as if it were the only system that ever existed (no V1 framing), and Brownfield
+  exercises V1 first as the pre-existing baseline, then represents a commit that activates V2 and
+  verifies it resolves afterward. The engineer also confirmed leaning toward Option B for the
+  still-open Gateway cache-as-index defect (try V2, fall back to V1 on a 404), but asked to build
+  and run this collection first and return to that implementation afterward.
+- **What changed:**
+  - Added `docs/url-shortener-enterprise.postman_collection.json` (Postman Collection v2.1):
+    folder `0. Auth` (Resource Owner Password grant against the `urlshortener` realm, storing
+    `{{accessToken}}` as a collection variable and logging the token's `iss` claim); folder
+    `1. Greenfield — V2 as the primary system` (create/redirect, custom alias, duplicate alias
+    409, reserved slug 400, invalid input 400, expiration 410, device-classified redirect rules
+    for mobile/desktop User-Agents, unknown-code 404, and the async bulk submit+poll flow);
+    folder `2. Brownfield — V1 baseline, then V2 cutover` (V1 create/301-redirect, a Gateway
+    request confirming V1 fallback works before any V2 code exists, a `'Cutover commit'` request
+    creating the same link on V2, a Gateway request for that brand-new V2 code with a
+    **soft assertion** — it reports whether the observed status was 302 or 404 via
+    `console.warn`/`console.log` rather than failing the run — a direct V2 read that warms
+    `ShortLinkCache`, and a final Gateway request expected to return 302).
+  - Added `docs/url-shortener-enterprise.postman_environment.json`: one environment covering both
+    run options (docker-compose + `mvn spring-boot:run`, and k3d), since both expose the same
+    `localhost` ports (8080 V1, 8081 Keycloak, 8082 Gateway, 8084 V2).
+  - Updated `README.md` and `ARCHITECTURE.md` to stop saying the Postman collection was
+    "planned, not yet created" now that it exists, while keeping the `curl` walkthrough as the
+    terminal-only alternative it already was.
+- **Researched first:** read `UrlController` (V1), `ShortLinkController`, `BulkJobController`,
+  `CreateUrlRequest`, `CreateBulkUrlRequest`/`BulkUrlItemRequest`, `RedirectDeviceType`, and
+  `RedirectDeviceClassifier` before writing a single request, so status codes, payload shapes,
+  and the mobile/desktop User-Agent regex in the collection match the real contracts rather than
+  assumed ones.
+- **Verification:** both JSON files parse (`json.load`) and `markdownlint-cli2` is clean on the
+  touched Markdown files. The collection itself was **not executed** from this assistant's
+  environment — it can reach this repository's local clone but not the engineer's live
+  Codespace, so there is no way to run Postman/Newman against the real stack from here. Running
+  it for real (Postman GUI, import both files, run `0. Auth` then each folder; or
+  `newman run docs/url-shortener-enterprise.postman_collection.json -e
+  docs/url-shortener-enterprise.postman_environment.json`) and reporting the actual pass/fail
+  output is left to the engineer, consistent with this project's standing rule of getting real
+  evidence rather than assuming a script that was never run behaves as designed.
+- **Declared risk:** the `keycloakUsername`/`keycloakPassword`/`clientSecret` environment values
+  are placeholders (`REPLACE_WITH_REAL_...`) — no credential was invented or hardcoded, and the
+  engineer must fill these in locally from the imported realm before running the collection, per
+  this project's standing rule that this assistant never handles or generates credentials.
+- **Not modified:** no application or infrastructure code — this entry is documentation/tooling
+  only. The Gateway cache-as-index defect (Option B fix) remains open by design, deferred per the
+  engineer's own sequencing, and the Brownfield folder's before/after step is deliberately built
+  to keep passing its hard assertions both before and after that fix lands.
