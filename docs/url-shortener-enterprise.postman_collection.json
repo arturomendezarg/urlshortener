@@ -713,7 +713,7 @@
 					]
 				},
 				{
-					"name": "Gateway routing for the new V2 code BEFORE it is read directly",
+					"name": "Gateway routing for the new V2 code BEFORE it is read directly (302)",
 					"request": {
 						"method": "GET",
 						"header": [],
@@ -779,7 +779,7 @@
 					}
 				},
 				{
-					"name": "Gateway routing for the same V2 code AFTER the direct read",
+					"name": "Gateway routing for the same V2 code AFTER the direct read (302)",
 					"request": {
 						"method": "GET",
 						"header": [],
