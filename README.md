@@ -26,9 +26,8 @@ in [`ARCHITECTURE.md`](./ARCHITECTURE.md); this document is the executive summar
 - **Day-by-day plan** (full detail in `ARCHITECTURE.md` §7): Day 1 builds the system from scratch
   as the Greenfield foundation (V1, Gateway, V2 services, infra, CI); Day 2 proves the Brownfield
   story with two concrete scenarios — a standalone V1-only baseline, then the V2 cutover
-  alongside it; Day 3 validates the Ambiguous-requirement decisions with executable tests, runs a
-  deliberate audit-trail demonstration (a plaintext-credential PR meant to be caught and rejected
-  in human review, never merged), and closes with final documentation.
+  alongside it; Day 3 validates the Ambiguous-requirement decisions with executable tests and
+  closes with final documentation.
 - **Cut priority if time runs short** (explicitly confirmed): protect the three scenarios
   (Greenfield/Brownfield/Ambiguous) above everything else. Cut order: (1) live Kubernetes →
   docker-compose + manifests left unexecuted, (2) full OIDC → simple JWT, (3) asynchronous bulk →
@@ -45,7 +44,7 @@ Full rationale for every decision is in `ARCHITECTURE.md` §3.4 (Key Decisions).
   traceability template for every change.
 - [`infra/k8s/`](./infra/k8s/) — Kubernetes manifests and the `kind` deployment script (see
   `infra/k8s/README.md`).
-- Postman collection — see `ARCHITECTURE.md` §9.
+- [`docs/url-shortener-enterprise.postman_collection.json`](./docs/url-shortener-enterprise.postman_collection.json) (with [`docs/url-shortener-enterprise.postman_environment.json`](./docs/url-shortener-enterprise.postman_environment.json)) — Postman collection covering a Greenfield flow (V2 as the primary system) and a Brownfield flow (V1 baseline, then a V2 cutover), including the live reproduction of the Gateway routing defect below.
 
 ## Risks, Trade-offs, and Validation
 
@@ -71,13 +70,82 @@ Summary (full detail in `ARCHITECTURE.md` §13): a few seconds of eventual consi
 analytics; no persistent storage in the local kind/k3d cluster; no verification against external
 phishing/malware lists; no real GKE deployment within this exercise's timebox.
 
-## Quickstart
+## For reviewers: setup and verification
 
-Full instructions in `ARCHITECTURE.md` §9. Summary:
+Full detail in `ARCHITECTURE.md` §9. This section is the condensed path to get the system
+running and exercise it yourself, with two setup options. You can drive it with the Postman
+collection (see "Artifacts" above) or with the `curl` sequence below — both exercise the
+same requests.
 
-1. Open the repo in GitHub Codespaces (preconfigures Java 17, Docker-in-Docker, `kind`/`k3d`).
-2. `docker-compose up -d` (Postgres, Redis, RabbitMQ, Keycloak).
-3. `mvn clean spring-boot:run`.
+### 1. Open the Codespace
+
+`<> Code` → **Codespaces** → **Create codespace on main**. `.devcontainer/setup.sh` preconfigures
+Java 17, Maven, Docker and `kubectl`/`kind` on creation. **`k3d` is not preinstalled** — install
+it once per Codespace if you take option B below:
+
+```bash
+curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+```
+
+### 2. Run the system — pick one
+
+**Option A — fast dev loop (`docker-compose` + Maven):**
+
+```bash
+docker-compose up -d                    # Postgres, Redis, RabbitMQ, Keycloak
+mvn clean install -DskipTests           # build all 7 reactor modules once
+mvn -pl v1-legacy-monolith spring-boot:run       # :8080, each in its own terminal
+mvn -pl api-gateway spring-boot:run              # :8082
+mvn -pl analytics-worker spring-boot:run         # :8083
+mvn -pl v2-shortener-service spring-boot:run     # :8084
+mvn -pl bulk-processor spring-boot:run           # :8085
+```
+
+**Option B — the actual Kubernetes deployment (`k3d`), verified end-to-end:**
+
+```bash
+docker-compose down                     # the two cannot run at once, see infra/k8s/README.md
+./infra/k8s/deploy-to-k3d.sh
+```
+
+This is the path documented and exercised in `infra/k8s/README.md` — all 9 pods reaching
+`Ready`, real OIDC auth, and both the V1 and V2 redirect paths confirmed over HTTP. That
+document also has troubleshooting for a suspended Codespace, port conflicts with option A, and
+reading a pod that looks stuck but isn't.
+
+Both options expose the same 3 ports (8081 Keycloak, 8082 Gateway, 8084 V2), so the commands
+below work unchanged regardless of which one you ran.
+
+### 3. Exercise it
+
+This is the `curl` equivalent of the Postman collection (see "Artifacts") for a terminal-only
+pass — the same sequence run against the live k3d deployment, transcript in
+[`infra/k8s/README.md`](./infra/k8s/README.md#smoke-test):
+
+```bash
+# Token (the imported realm's demo/demo_local user)
+RESP=$(curl -s -X POST http://localhost:8081/realms/urlshortener/protocol/openid-connect/token \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=password&client_id=url-shortener-v2&username=demo&password=demo_local')
+TOKEN=$(echo "$RESP" | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+
+# V1: create and redirect, both through the Gateway
+V1=$(curl -s -X POST http://localhost:8082/api/v1/urls \
+  -H 'Content-Type: application/json' -d '{"longUrl":"https://example.com/soy-v1"}')
+V1CODE=$(echo "$V1" | sed -n 's/.*"shortCode"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+curl -i -s "http://localhost:8082/${V1CODE}" | head -1
+
+# V2: create with the real JWT, then follow the redirect
+curl -i -s -X POST http://localhost:8084/api/v2/urls \
+  -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
+  -d '{"longUrl":"https://example.com/soy-v2","customAlias":"demoV2"}' | head -1
+curl -i -s http://localhost:8084/demoV2 | head -1
+```
+
+Expect `201` on both creates and a `30x` on both redirects. If you also try `GET
+http://localhost:8082/demoV2` (the V2 code, but *through the Gateway*) before and after the
+direct read above, you will reproduce the Gateway's known routing defect on purpose — see
+`ARCHITECTURE.md` §13 and `infra/k8s/README.md` ("Known defect").
 
 ## Current status
 
